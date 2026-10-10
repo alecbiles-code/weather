@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Powcast — Colorado Snow Forecast</title>
+<title>Powcast — Colorado Snow Intel</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -11,213 +11,259 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
-    --bg: #0a0d12;
-    --panel: #12161d;
-    --panel2: #171c25;
-    --line: #232a36;
-    --line2: #2c3542;
-    --text: #e8edf3;
-    --muted: #8a95a4;
-    --dim: #5c6774;
-    --accent: #4cc2ff;
-    --accent-soft: rgba(76, 194, 255, 0.12);
-    --good: #3ddc97;
-    --warn: #ffb454;
-    --bad: #ff6b6b;
+    --bg:#0a0d12; --panel:#12161d; --panel2:#171c25; --line:#232a36; --line2:#2c3542;
+    --text:#e8edf3; --muted:#8a95a4; --dim:#5c6774;
+    --accent:#4cc2ff; --accent-soft:rgba(76,194,255,.12); --good:#3ddc97; --warn:#ffb454; --bad:#ff6b6b; --gold:#ffd166;
+    --av1:#50b848; --av2:#fff200; --av3:#f7941e; --av4:#ed1c24; --av5:#000;
   }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    margin: 0;
-    -webkit-font-smoothing: antialiased;
-  }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
-  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+  *{box-sizing:border-box} html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;margin:0;-webkit-font-smoothing:antialiased}
+  ::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px} ::-webkit-scrollbar-thumb:hover{background:var(--dim)}
 
-  .topbar {
-    height: 56px; background: var(--panel); border-bottom: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 20px; position: relative; z-index: 1200;
-  }
-  .brand { display: flex; align-items: center; gap: 10px; }
-  .brand .dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 10px rgba(76,194,255,.6);
-  }
-  .brand h1 { font-size: 16px; font-weight: 700; letter-spacing: .3px; margin: 0; }
-  .brand span { color: var(--muted); font-weight: 500; }
-  .top-right { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--muted); }
-  .live { display: flex; align-items: center; gap: 6px; color: var(--good); font-weight: 600; font-size: 11px; letter-spacing: .5px; }
-  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; animation: pulse 1.6s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .topbar{height:56px;background:var(--panel);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:relative;z-index:1200;gap:12px}
+  .brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px rgba(76,194,255,.6)}
+  .brand h1{font-size:16px;font-weight:700;letter-spacing:.3px;margin:0}
+  .brand span{color:var(--muted);font-weight:500}
+  .tabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px}
+  .tab{padding:6px 14px;font-size:12.5px;font-weight:600;color:var(--muted);border-radius:6px;cursor:pointer;border:none;background:transparent;font-family:inherit;transition:all .12s}
+  .tab:hover{color:var(--text)} .tab.active{background:var(--accent);color:#04121c}
+  .top-right{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--muted);flex-shrink:0}
+  .live{display:flex;align-items:center;gap:6px;color:var(--good);font-weight:600;font-size:11px;letter-spacing:.5px}
+  .live i{width:7px;height:7px;border-radius:50%;background:var(--good);display:inline-block;animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  @media (max-width:760px){ .brand span{display:none} .top-right #clock{display:none} }
 
-  #map { position: fixed; top: 56px; bottom: 0; left: 0; right: 0; z-index: 1; background: var(--bg); }
-  .leaflet-container { background: var(--bg); font-family: inherit; }
-  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
-  .leaflet-popup-tip { background: var(--panel); border: 1px solid var(--line2); }
-  .leaflet-popup-content { margin: 12px 14px; font-size: 12px; line-height: 1.5; }
-  .leaflet-popup-close-button { color: var(--muted) !important; }
-  .leaflet-bar a { background: var(--panel); color: var(--text); border-bottom: 1px solid var(--line); }
-  .leaflet-bar a:hover { background: var(--panel2); }
-  .leaflet-control-attribution { background: rgba(10,13,18,.8); color: var(--dim); font-size: 10px; }
-  .leaflet-control-attribution a { color: var(--dim); }
+  #stormBanner{display:none;position:relative;z-index:1199;background:linear-gradient(90deg,rgba(76,194,255,.14),rgba(76,194,255,.05));border-bottom:1px solid rgba(76,194,255,.3);padding:9px 20px;font-size:12.5px;align-items:center;gap:12px;cursor:pointer}
+  #stormBanner.show{display:flex}
+  #stormBanner:hover{background:linear-gradient(90deg,rgba(76,194,255,.2),rgba(76,194,255,.08))}
+  #stormBanner .pill{background:var(--accent);color:#04121c;font-weight:800;font-size:10px;letter-spacing:.5px;padding:2px 8px;border-radius:4px;flex-shrink:0}
+  #stormBanner .txt{color:var(--text)} #stormBanner .txt b{color:var(--accent)}
+  #stormBanner .go{margin-left:auto;color:var(--muted);font-size:11px;flex-shrink:0}
 
-  .resort-marker {
-    background: #1a2430; border: 1.5px solid #4cc2ff; color: #e8edf3;
-    border-radius: 16px; padding: 3px 9px; font-size: 11px; font-weight: 700;
-    white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.5);
-    display: flex; align-items: center; gap: 4px; cursor: pointer;
-    transform: translate(-50%, -50%); transition: transform .12s ease, background .12s ease;
-  }
-  .resort-marker:hover { transform: translate(-50%,-50%) scale(1.08); background: #243341; z-index: 1000; }
-  .resort-marker.selected { background: #4cc2ff; color: #04121c; border-color: #fff; }
-  .resort-marker .val { font-variant-numeric: tabular-nums; }
-  .resort-marker.big { border-color: #ffd166; }
-  .resort-marker.big.selected { background: #ffd166; }
+  #mapView{position:fixed;top:56px;bottom:0;left:0;right:0}
+  body.banner #mapView{top:93px}
+  #map{position:absolute;inset:0;z-index:1;background:var(--bg)}
+  .leaflet-container{background:var(--bg);font-family:inherit}
+  .leaflet-popup-content-wrapper{background:var(--panel);color:var(--text);border:1px solid var(--line2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .leaflet-popup-tip{background:var(--panel)} .leaflet-popup-content{margin:12px 14px;font-size:12px;line-height:1.5}
+  .leaflet-popup-close-button{color:var(--muted)!important}
+  .leaflet-bar a{background:var(--panel);color:var(--text);border-bottom:1px solid var(--line)} .leaflet-bar a:hover{background:var(--panel2)}
+  .leaflet-control-layers{background:var(--panel);color:var(--text);border:1px solid var(--line2);border-radius:8px;font-size:11.5px}
+  .leaflet-control-layers-selector{vertical-align:middle}
+  .leaflet-control-attribution{background:rgba(10,13,18,.8);color:var(--dim);font-size:10px} .leaflet-control-attribution a{color:var(--dim)}
 
-  .panel {
-    position: fixed; top: 56px; left: 0; bottom: 0; width: 396px;
-    background: var(--panel); border-right: 1px solid var(--line);
-    z-index: 1100; overflow-y: auto; overflow-x: hidden;
-    box-shadow: 4px 0 24px rgba(0,0,0,.35);
-  }
-  @media (max-width: 860px) {
-    .panel { width: 100%; max-width: 396px; left: auto; right: 0; border-right: none; border-left: 1px solid var(--line); }
-  }
-  .panel-inner { padding: 18px 18px 28px; }
+  .resort-marker{background:#1a2430;border:1.5px solid var(--accent);color:#e8edf3;border-radius:14px;padding:3px 9px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);display:flex;align-items:center;gap:5px;cursor:pointer;transform:translate(-50%,-50%);transition:transform .12s,background .12s}
+  .resort-marker:hover{transform:translate(-50%,-50%) scale(1.08);background:#243341}
+  .resort-marker.selected{background:var(--accent);color:#04121c;border-color:#fff}
+  .resort-marker.bc{border-color:var(--gold)} .resort-marker.bc.selected{background:var(--gold)}
+  .resort-marker.big{border-color:var(--gold);box-shadow:0 0 0 2px rgba(255,209,102,.25)}
+  .resort-marker .fav{color:var(--gold);font-size:10px}
 
-  .panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
-  .panel-head h2 { font-size: 20px; font-weight: 800; margin: 0; letter-spacing: -.3px; }
-  .region { color: var(--muted); font-size: 12px; margin-top: 3px; }
-  .elev { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; margin-top: 6px; }
-  .elev b { color: var(--text); font-weight: 600; }
+  .panel{position:absolute;top:0;left:0;bottom:0;width:400px;background:var(--panel);border-right:1px solid var(--line);z-index:1100;overflow-y:auto;box-shadow:4px 0 24px rgba(0,0,0,.35)}
+  @media (max-width:860px){.panel{width:100%;max-width:400px;left:auto;right:0;border-right:none;border-left:1px solid var(--line)}}
+  .panel-inner{padding:18px 18px 28px}
+  .map-tools{position:absolute;top:12px;right:14px;z-index:1150;display:flex;flex-direction:column;gap:8px}
+  .map-btn{background:var(--panel);border:1px solid var(--line2);border-radius:8px;color:var(--text);font-size:11.5px;font-weight:600;padding:7px 12px;cursor:pointer;display:flex;align-items:center;gap:6px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+  .map-btn:hover{background:var(--panel2)} .map-btn .ind{width:7px;height:7px;border-radius:50%;background:var(--dim)}
+  .map-btn.on .ind{background:var(--accent);box-shadow:0 0 6px var(--accent)}
 
-  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
-  .stat {
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
-  }
-  .stat .label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
-  .stat .val { font-size: 26px; font-weight: 800; margin-top: 5px; font-variant-numeric: tabular-nums; line-height: 1.05; }
-  .stat .val small { font-size: 13px; font-weight: 600; color: var(--muted); }
-  .stat .sub { font-size: 11px; color: var(--dim); margin-top: 4px; }
-  .stat.accent { background: var(--accent-soft); border-color: rgba(76,194,255,.3); }
-  .stat.accent .val { color: var(--accent); }
-  .obs-tag { font-size: 9px; background: rgba(61,220,151,.15); color: var(--good); border: 1px solid rgba(61,220,151,.3); padding: 1px 5px; border-radius: 4px; font-weight: 700; letter-spacing: .4px; }
-  .fc-tag { font-size: 9px; background: rgba(76,194,255,.12); color: var(--accent); border: 1px solid rgba(76,194,255,.3); padding: 1px 5px; border-radius: 4px; font-weight: 700; letter-spacing: .4px; }
+  .avy{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:14px}
+  .avy-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+  .avy-head .t{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+  .avy-off{font-size:12px;color:var(--dim);line-height:1.5}
+  .avy-link{font-size:10.5px;color:var(--accent);text-decoration:none;margin-top:8px;display:inline-block}
+  .avy-link:hover{text-decoration:underline}
 
-  .sec-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
-  .sec-title::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  #compareView{position:fixed;top:56px;bottom:0;left:0;right:0;overflow-y:auto;background:var(--bg);display:none}
+  body.banner #compareView{top:93px}
+  #compareView.show{display:block}
+  .compare-inner{max-width:1080px;margin:0 auto;padding:22px 24px 40px}
+  .compare-head{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:6px}
+  .compare-head h2{font-size:22px;font-weight:800;margin:0;letter-spacing:-.3px}
+  .compare-head p{color:var(--muted);font-size:12.5px;margin:4px 0 0}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .seg button{padding:6px 12px;font-size:12px;font-weight:600;color:var(--muted);background:transparent;border:none;border-radius:6px;cursor:pointer;font-family:inherit}
+  .seg button.active{background:var(--accent);color:#04121c} .seg button:hover:not(.active){color:var(--text)}
+  .ctl-label{font-size:10.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-right:2px}
+  .podium{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 6px}
+  @media (max-width:720px){.podium{grid-template-columns:1fr}}
+  .pod{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .15s,transform .15s}
+  .pod:hover{border-color:var(--line2);transform:translateY(-2px)}
+  .pod .rank{position:absolute;top:-6px;right:8px;font-size:64px;font-weight:800;color:rgba(255,255,255,.04);line-height:1}
+  .pod .medal{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding:2px 7px;border-radius:4px;display:inline-block}
+  .pod.p1 .medal{background:rgba(255,209,102,.15);color:var(--gold)} .pod.p2 .medal{background:rgba(200,210,220,.12);color:#c8d2dc} .pod.p3 .medal{background:rgba(205,127,50,.15);color:#cd7f32}
+  .pod h3{font-size:17px;font-weight:700;margin:10px 0 2px} .pod .where{font-size:11px;color:var(--muted)}
+  .pod .num{font-size:40px;font-weight:800;color:var(--accent);margin:8px 0 2px;font-variant-numeric:tabular-nums;line-height:1}
+  .pod .num small{font-size:16px;color:var(--muted);font-weight:600}
+  .pod .depth{font-size:11.5px;color:var(--muted)} .pod .depth b{color:var(--good)}
+  .board{background:var(--panel2);border:1px solid var(--line);border-radius:12px;margin-top:14px;overflow:hidden}
+  .board-row{display:grid;grid-template-columns:30px 1fr 84px 140px 80px 70px;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s}
+  .board-row:last-child{border-bottom:none} .board-row:hover{background:var(--panel)}
+  .board-row.hdr{cursor:default;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--dim);font-weight:600}
+  .board-row.hdr:hover{background:transparent}
+  .b-rank{font-weight:700;color:var(--dim);font-size:13px}
+  .b-name{font-weight:600;font-size:13.5px;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+  .b-name .fbtn{cursor:pointer;color:var(--dim);font-size:13px;line-height:1;background:none;border:none;padding:0}
+  .b-name .fbtn.on{color:var(--gold)} .b-name .fbtn:hover{color:var(--gold)}
+  .b-name .kind{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px}
+  .b-name .kind.r{background:rgba(76,194,255,.15);color:var(--accent)} .b-name .kind.b{background:rgba(255,209,102,.15);color:var(--gold)}
+  .b-name .reg{width:100%;font-size:10.5px;color:var(--dim);font-weight:500}
+  .b-snow{font-weight:800;font-size:16px;color:var(--accent);text-align:right;font-variant-numeric:tabular-nums}
+  .b-snow small{font-size:11px;color:var(--muted);font-weight:600}
+  .b-bar{height:10px;background:var(--line);border-radius:5px;overflow:hidden}
+  .b-bar i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#2f8fc4,var(--accent))}
+  .b-bar.max i{background:linear-gradient(90deg,#b98a2e,var(--gold))}
+  .b-depth,.b-wind{font-size:12px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+  .b-depth b{color:var(--text);font-weight:600}
+  @media (max-width:720px){.board-row{grid-template-columns:26px 1fr 66px 86px}.b-depth,.b-wind{display:none}}
+  .mini-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:24px 0 10px;display:flex;align-items:center;gap:8px}
+  .mini-title::after{content:'';flex:1;height:1px;background:var(--line)}
+  .mini-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .mini{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px 13px;cursor:pointer;transition:border-color .12s}
+  .mini:hover{border-color:var(--line2)}
+  .mini h4{font-size:12.5px;font-weight:600;margin:0 0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mini svg{width:100%;height:42px;display:block}
+  .mini .tot{font-size:11px;color:var(--muted);margin-top:6px} .mini .tot b{color:var(--accent);font-weight:700}
 
-  .day-card {
-    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
-    padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s ease;
-  }
-  .day-card:hover { border-color: var(--line2); }
-  .day-top { display: flex; justify-content: space-between; align-items: center; }
-  .day-top .d { font-weight: 700; font-size: 14px; }
-  .day-top .d small { color: var(--muted); font-weight: 500; margin-left: 6px; }
-  .wx-icon { width: 22px; height: 22px; }
-  .snow-pill { font-weight: 800; font-size: 16px; color: var(--accent); font-variant-numeric: tabular-nums; }
-  .snow-pill.none { color: var(--dim); font-weight: 600; }
-  .day-meta { display: flex; gap: 14px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
-  .day-meta b { color: var(--text); font-weight: 600; }
-  .wind-flag { margin-top: 8px; font-size: 11px; color: var(--warn); display: flex; align-items: center; gap: 5px; font-weight: 600; }
-  .conf { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
-  .conf .bar { flex: 1; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
-  .conf .bar i { display: block; height: 100%; border-radius: 2px; }
-  .conf span { font-size: 10px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-
-  .chart-wrap { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-  .chart-svg { width: 100%; height: 190px; display: block; }
-  .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 8px; }
-  .chart-legend .k { display: flex; align-items: center; gap: 5px; }
-  .chart-legend .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-  td { padding: 7px 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-  tr:hover td { background: var(--panel2); }
-  td.s { color: var(--accent); font-weight: 700; }
-  td.t { font-weight: 600; }
-
-  .src-note { font-size: 10.5px; color: var(--dim); line-height: 1.5; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
-  .src-note b { color: var(--muted); }
-
-  .map-toggle {
-    position: fixed; top: 68px; right: 14px; z-index: 1150;
-    background: var(--panel); border: 1px solid var(--line2); border-radius: 8px;
-    color: var(--text); font-size: 11.5px; font-weight: 600; padding: 7px 12px; cursor: pointer;
-    display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.4);
-  }
-  .map-toggle:hover { background: var(--panel2); }
-  .map-toggle .ind { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
-  .map-toggle.on .ind { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
-
-  .skel { background: linear-gradient(90deg, var(--panel2) 25%, var(--line) 50%, var(--panel2) 75%); background-size: 200% 100%; animation: sh 1.2s infinite; border-radius: 8px; }
-  @keyframes sh { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-
-  footer { padding: 14px 20px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); line-height: 1.6; background: var(--panel); }
+  .panel-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px}
+  .panel-head h2{font-size:20px;font-weight:800;margin:0;letter-spacing:-.3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .fav-btn{cursor:pointer;font-size:20px;color:var(--dim);background:none;border:none;line-height:1;padding:0}
+  .fav-btn.on{color:var(--gold)} .fav-btn:hover{color:var(--gold)}
+  .region{color:var(--muted);font-size:12px;margin-top:3px}
+  .elev{color:var(--muted);font-size:12px;margin-top:6px} .elev b{color:var(--text);font-weight:600}
+  .kindtag{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:700;vertical-align:middle}
+  .kindtag.bc{background:rgba(255,209,102,.15);color:var(--gold)} .kindtag.res{background:rgba(76,194,255,.15);color:var(--accent)}
+  .go-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(61,220,151,.15);border:1px solid rgba(61,220,151,.4);color:var(--good);font-size:10px;font-weight:800;letter-spacing:.5px;padding:3px 8px;border-radius:5px;margin-top:8px}
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .stat .label{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;display:flex;align-items:center;gap:5px}
+  .stat .val{font-size:26px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums;line-height:1.05}
+  .stat .val small{font-size:13px;font-weight:600;color:var(--muted)}
+  .stat .sub{font-size:11px;color:var(--dim);margin-top:4px}
+  .stat.accent{background:var(--accent-soft);border-color:rgba(76,194,255,.3)} .stat.accent .val{color:var(--accent)}
+  .obs-tag{font-size:9px;background:rgba(61,220,151,.15);color:var(--good);border:1px solid rgba(61,220,151,.3);padding:1px 5px;border-radius:4px;font-weight:700;letter-spacing:.4px}
+  .fc-tag{font-size:9px;background:rgba(76,194,255,.12);color:var(--accent);border:1px solid rgba(76,194,255,.3);padding:1px 5px;border-radius:4px;font-weight:700;letter-spacing:.4px}
+  .pct-good{color:var(--good)} .pct-bad{color:var(--warn)}
+  .sec-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:22px 0 10px;display:flex;align-items:center;gap:8px}
+  .sec-title::after{content:'';flex:1;height:1px;background:var(--line)}
+  .day-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+  .day-card:hover{border-color:var(--line2)} .day-card.go{border-color:rgba(61,220,151,.5);background:rgba(61,220,151,.05)}
+  .day-top{display:flex;justify-content:space-between;align-items:center}
+  .day-top .d{font-weight:700;font-size:14px} .day-top .d small{color:var(--muted);font-weight:500;margin-left:6px}
+  .day-top .go-mini{font-size:9px;background:var(--good);color:#04121c;font-weight:800;padding:2px 6px;border-radius:3px;letter-spacing:.5px}
+  .wx-icon{width:22px;height:22px}
+  .snow-pill{font-weight:800;font-size:16px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .snow-pill.none{color:var(--dim);font-weight:600}
+  .day-meta{display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--muted);flex-wrap:wrap} .day-meta b{color:var(--text);font-weight:600}
+  .qtag{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;letter-spacing:.3px}
+  .wind-flag{margin-top:8px;font-size:11px;color:var(--warn);display:flex;align-items:center;gap:5px;font-weight:600}
+  .conf{display:flex;align-items:center;gap:7px;margin-top:9px} .conf .bar{flex:1;height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+  .conf .bar i{display:block;height:100%;border-radius:2px} .conf span{font-size:10px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .chart-wrap{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .chart-svg{width:100%;height:190px;display:block}
+  .fl-svg{width:100%;height:150px;display:block}
+  .chart-legend{display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+  .chart-legend .k{display:flex;align-items:center;gap:5px} .chart-legend .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  tr:hover td{background:var(--panel2)} td.s{color:var(--accent);font-weight:700} td.t{font-weight:600}
+  .src-note{font-size:10.5px;color:var(--dim);line-height:1.5;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)} .src-note b{color:var(--muted)}
+  .skel{background:linear-gradient(90deg,var(--panel2) 25%,var(--line) 50%,var(--panel2) 75%);background-size:200% 100%;animation:sh 1.2s infinite;border-radius:8px}
+  @keyframes sh{0%{background-position:200% 0}100%{background-position:-200% 0}}
 </style>
 </head>
 <body>
 
 <header class="topbar">
-  <div class="brand">
-    <div class="dot"></div>
-    <h1>POWCAST <span>· Colorado</span></h1>
+  <div class="brand"><div class="dot"></div><h1>POWCAST <span>· Colorado</span></h1></div>
+  <div class="tabs">
+    <button class="tab active" id="tabMap">Map</button>
+    <button class="tab" id="tabCompare">Powder Finder</button>
   </div>
   <div class="top-right">
     <div class="live"><i></i>LIVE</div>
     <div id="clock">—</div>
-    <div>20 resorts</div>
+    <div id="count">—</div>
   </div>
 </header>
 
-<div id="map"></div>
-<button id="radarBtn" class="map-toggle"><span class="ind"></span>Precip radar</button>
+<div id="stormBanner"><span class="pill">STORM</span><span class="txt"></span><span class="go">View →</span></div>
 
-<aside class="panel">
-  <div class="panel-inner" id="panelContent"></div>
-</aside>
+<div id="mapView">
+  <div id="map"></div>
+  <div class="map-tools"><button id="radarBtn" class="map-btn"><span class="ind"></span>Precip radar</button></div>
+  <aside class="panel"><div class="panel-inner" id="panelContent"></div></aside>
+</div>
+
+<div id="compareView">
+  <div class="compare-inner">
+    <div class="compare-head">
+      <div><h2>Powder Finder</h2><p>Every resort &amp; backcountry zone, ranked. ★ to favorite. Click to open the full report.</p></div>
+      <div class="controls">
+        <div><span class="ctl-label">Show</span>
+          <div class="seg" id="kindSeg"><button data-k="all" class="active">All</button><button data-k="fav">★ Favorites</button><button data-k="resort">Resorts</button><button data-k="bc">Backcountry</button></div></div>
+        <div><span class="ctl-label">Rank by</span>
+          <div class="seg" id="metricSeg"><button data-m="fc72" class="active">72-hr fcst</button><button data-m="fc7d">7-day fcst</button><button data-m="obs">7-day obs</button><button data-m="depth">Depth</button></div></div>
+      </div>
+    </div>
+    <div id="podium"></div>
+    <div class="board" id="board"></div>
+    <div class="mini-title">7-day forecast at a glance</div>
+    <div class="mini-grid" id="miniGrid"></div>
+    <div class="src-note" style="max-width:none"><b>Observed:</b> NRCS SNOTEL daily snow depth (new snow = depth increase; base % vs 30-yr median). <b>Forecast:</b> Open-Meteo at a point; elevation may differ from summit. <b>Avalanche:</b> CAIC via avalanche.org (in season). Rankings update automatically.</div>
+  </div>
+</div>
 
 <script>
-/* ============================ CONFIG ============================ */
-const REFRESH_MS = 10 * 60 * 1000;
-const HIST_DAYS = 7, FC_DAYS = 14;
+/* ================= CONFIG ================= */
+const REFRESH_MS=10*60*1000, HIST_DAYS=7, FC_DAYS=14;
+const AVY=['—','Low','Moderate','Considerable','High','Extreme'];
+const AVY_C=['#888','#50b848','#fff200','#f7941e','#ed1c24','#000'];
 
-const RESORTS = [
-  {name:'Vail',lat:39.6403,lon:-106.3742,elev:12408,region:'Central',snotel:'842:CO:SNTL'},
-  {name:'Beaver Creek',lat:39.6042,lon:-106.5165,elev:11440,region:'Central',snotel:'1041:CO:SNTL'},
-  {name:'Breckenridge',lat:39.4817,lon:-106.0384,elev:12998,region:'Central',snotel:'415:CO:SNTL'},
-  {name:'Keystone',lat:39.6069,lon:-105.9439,elev:12408,region:'Central',snotel:'505:CO:SNTL'},
-  {name:'Copper Mountain',lat:39.5022,lon:-106.1511,elev:12313,region:'Central',snotel:'415:CO:SNTL'},
-  {name:'Arapahoe Basin',lat:39.6425,lon:-105.8717,elev:13050,region:'Central',snotel:'505:CO:SNTL'},
-  {name:'Winter Park',lat:39.8868,lon:-105.7625,elev:12060,region:'Front Range',snotel:'1186:CO:SNTL'},
-  {name:'Steamboat',lat:40.4572,lon:-106.8045,elev:10568,region:'Northern',snotel:'457:CO:SNTL'},
-  {name:'Aspen Snowmass',lat:39.2084,lon:-106.9490,elev:12510,region:'Western',snotel:'669:CO:SNTL'},
-  {name:'Telluride',lat:37.9375,lon:-107.8123,elev:13150,region:'Southern',snotel:'1344:CO:SNTL'},
-  {name:'Crested Butte',lat:38.8991,lon:-106.9659,elev:12162,region:'Western',snotel:'380:CO:SNTL'},
-  {name:'Loveland',lat:39.6800,lon:-105.8979,elev:13010,region:'Central',snotel:'602:CO:SNTL'},
-  {name:'Eldora',lat:39.9372,lon:-105.5827,elev:10600,region:'Front Range',snotel:'564:CO:SNTL'},
-  {name:'Monarch Mountain',lat:38.5122,lon:-106.3320,elev:11961,region:'Central',snotel:'701:CO:SNTL'},
-  {name:'Purgatory',lat:37.6303,lon:-107.8140,elev:10822,region:'Southern',snotel:'387:CO:SNTL'},
-  {name:'Wolf Creek',lat:37.4722,lon:-106.7930,elev:11904,region:'Southern',snotel:'874:CO:SNTL'},
-  {name:'Silverton Mountain',lat:37.8846,lon:-107.6659,elev:13487,region:'Southern',snotel:'713:CO:SNTL'},
-  {name:'Powderhorn',lat:39.0694,lon:-108.1507,elev:9850,region:'Western',snotel:'622:CO:SNTL'},
-  {name:'Sunlight Mountain',lat:39.3998,lon:-107.3387,elev:9895,region:'Western',snotel:'618:CO:SNTL'},
-  {name:'Ski Cooper',lat:39.3603,lon:-106.3014,elev:11700,region:'Central',snotel:'485:CO:SNTL'},
+const LOCATIONS=[
+  {name:'Vail',lat:39.6403,lon:-106.3742,elev:12408,region:'Central',kind:'resort',snotel:'842:CO:SNTL'},
+  {name:'Beaver Creek',lat:39.6042,lon:-106.5165,elev:11440,region:'Central',kind:'resort',snotel:'1041:CO:SNTL'},
+  {name:'Breckenridge',lat:39.4817,lon:-106.0384,elev:12998,region:'Central',kind:'resort',snotel:'415:CO:SNTL'},
+  {name:'Keystone',lat:39.6069,lon:-105.9439,elev:12408,region:'Central',kind:'resort',snotel:'505:CO:SNTL'},
+  {name:'Copper Mountain',lat:39.5022,lon:-106.1511,elev:12313,region:'Central',kind:'resort',snotel:'415:CO:SNTL'},
+  {name:'Arapahoe Basin',lat:39.6425,lon:-105.8717,elev:13050,region:'Central',kind:'resort',snotel:'505:CO:SNTL'},
+  {name:'Winter Park',lat:39.8868,lon:-105.7625,elev:12060,region:'Front Range',kind:'resort',snotel:'1186:CO:SNTL'},
+  {name:'Steamboat',lat:40.4572,lon:-106.8045,elev:10568,region:'Northern',kind:'resort',snotel:'457:CO:SNTL'},
+  {name:'Aspen Snowmass',lat:39.2084,lon:-106.9490,elev:12510,region:'Western',kind:'resort',snotel:'669:CO:SNTL'},
+  {name:'Telluride',lat:37.9375,lon:-107.8123,elev:13150,region:'Southern',kind:'resort',snotel:'1344:CO:SNTL'},
+  {name:'Crested Butte',lat:38.8991,lon:-106.9659,elev:12162,region:'Western',kind:'resort',snotel:'380:CO:SNTL'},
+  {name:'Loveland',lat:39.6800,lon:-105.8979,elev:13010,region:'Central',kind:'resort',snotel:'602:CO:SNTL'},
+  {name:'Eldora',lat:39.9372,lon:-105.5827,elev:10600,region:'Front Range',kind:'resort',snotel:'564:CO:SNTL'},
+  {name:'Monarch Mountain',lat:38.5122,lon:-106.3320,elev:11961,region:'Central',kind:'resort',snotel:'701:CO:SNTL'},
+  {name:'Purgatory',lat:37.6303,lon:-107.8140,elev:10822,region:'Southern',kind:'resort',snotel:'387:CO:SNTL'},
+  {name:'Wolf Creek',lat:37.4722,lon:-106.7930,elev:11904,region:'Southern',kind:'resort',snotel:'874:CO:SNTL'},
+  {name:'Silverton Mountain',lat:37.8846,lon:-107.6659,elev:13487,region:'Southern',kind:'resort',snotel:'713:CO:SNTL'},
+  {name:'Powderhorn',lat:39.0694,lon:-108.1507,elev:9850,region:'Western',kind:'resort',snotel:'622:CO:SNTL'},
+  {name:'Sunlight Mountain',lat:39.3998,lon:-107.3387,elev:9895,region:'Western',kind:'resort',snotel:'618:CO:SNTL'},
+  {name:'Ski Cooper',lat:39.3603,lon:-106.3014,elev:11700,region:'Central',kind:'resort',snotel:'485:CO:SNTL'},
+  {name:'Berthoud Pass',lat:39.7986,lon:-105.7778,elev:11307,region:'Front Range',kind:'bc',snotel:'335:CO:SNTL'},
+  {name:'Loveland Pass',lat:39.6636,lon:-105.8794,elev:11990,region:'Central',kind:'bc',snotel:'505:CO:SNTL'},
+  {name:'Vail Pass',lat:39.5303,lon:-106.2175,elev:10662,region:'Central',kind:'bc',snotel:'415:CO:SNTL'},
+  {name:'Rabbit Ears Pass',lat:40.4847,lon:-106.6114,elev:9426,region:'Northern',kind:'bc',snotel:'825:CO:SNTL'},
+  {name:'Cameron Pass',lat:40.5208,lon:-105.8925,elev:10276,region:'Northern',kind:'bc',snotel:'551:CO:SNTL'},
+  {name:'Jones Pass',lat:39.7736,lon:-105.8919,elev:12340,region:'Front Range',kind:'bc',snotel:'970:CO:SNTL'},
+  {name:'Independence Pass',lat:39.1089,lon:-106.5639,elev:12095,region:'Western',kind:'bc',snotel:'369:CO:SNTL'},
+  {name:'Hoosier Pass',lat:39.3617,lon:-106.0625,elev:11542,region:'Central',kind:'bc',snotel:'531:CO:SNTL'},
+  {name:'Monarch Pass',lat:38.4967,lon:-106.3256,elev:11312,region:'Central',kind:'bc',snotel:'701:CO:SNTL'},
+  {name:'Wolf Creek Pass',lat:37.4831,lon:-106.8003,elev:10857,region:'Southern',kind:'bc',snotel:'874:CO:SNTL'},
+  {name:'Red Mountain Pass',lat:37.8983,lon:-107.7114,elev:11018,region:'Southern',kind:'bc',snotel:'713:CO:SNTL'},
+  {name:'Fremont Pass',lat:39.3667,lon:-106.1867,elev:11318,region:'Central',kind:'bc',snotel:'485:CO:SNTL'},
 ];
 
-const state = { map:null, radar:null, radarOn:false, markers:{}, selected:null, data:{}, snotelMeta:{} };
+const state={map:null,radar:null,radarOn:false,markers:{},selected:null,data:{},radarPath:null,caic:null,
+  cmp:{kind:'all',metric:'fc72'},favs:new Set(JSON.parse(localStorage.getItem('powcast_favs')||'[]'))};
 
-/* ============================ ICONS (inline SVG, no emoji) ============================ */
-const IC = {
+/* ================= ICONS ================= */
+const IC={
   snow:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#4cc2ff" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M4 6l16 12M20 6L4 18M12 2l-2 3m2-3 2 3M12 22l-2-3m2 3 2-3M4 6l3.5.5M4 6 5 9.5M20 18l-3.5-.5m3.5.5-1-3.5M20 6l-1 3.5M20 6l-3.5.5M4 18l1-3.5M4 18l3.5.5"/></svg>',
   sun:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#ffd166" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   cloud:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#9aa7b5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 18a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.5 1.5A4 4 0 0 0 6.5 18h11z"/></svg>',
@@ -227,371 +273,323 @@ const IC = {
   wind:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2M17.7 7.7A2.5 2.5 0 1 1 19.5 12H2"/></svg>',
   alert:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
 };
+function wxIcon(c){ if([71,73,75,77,85,86].includes(c))return IC.snow; if([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(c))return IC.rain; if([95,96,99].includes(c))return IC.storm; if(c===0)return IC.sun; if([1,2].includes(c))return IC.part; return IC.cloud; }
 
-function wxIcon(code) {
-  if ([71,73,75,77,85,86].includes(code)) return IC.snow;
-  if ([51,53,55,61,63,65,80,81,82,56,57,66,67].includes(code)) return IC.rain;
-  if ([95,96,99].includes(code)) return IC.storm;
-  if (code === 0) return IC.sun;
-  if ([1,2].includes(code)) return IC.part;
-  return IC.cloud;
+/* ================= HELPERS ================= */
+const $=id=>document.getElementById(id), r1=v=>Math.round(v*10)/10, r0=v=>Math.round(v);
+function localToday(){const p={};new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date()).forEach(x=>p[x.type]=x.value);return `${p.year}-${p.month}-${p.day}`;}
+function shiftDate(iso,n){const d=new Date(iso+'T12:00:00');d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
+function niceDay(iso,today){const d=new Date(iso+'T12:00:00');const dow=d.toLocaleDateString('en-US',{weekday:'short'}),md=d.toLocaleDateString('en-US',{month:'short',day:'numeric'});if(iso===today)return['Today',md];if(iso===shiftDate(today,1))return['Tomorrow',md];return[dow,md];}
+const cmToIn=cm=>cm/2.54, mToFt=m=>m*3.28084;
+function saveFavs(){localStorage.setItem('powcast_favs',JSON.stringify([...state.favs]));}
+function toggleFav(name){ if(state.favs.has(name))state.favs.delete(name); else state.favs.add(name); saveFavs(); updateFavUI(); if($('compareView').classList.contains('show'))renderCompare(); }
+function updateFavUI(){ document.querySelectorAll('.fav-btn,.fbtn').forEach(b=>{const n=b.dataset.fav; if(n!=null){b.classList.toggle('on',state.favs.has(n)); b.textContent=state.favs.has(n)?'★':'☆';}}); }
+
+/* ================= DATA FETCH ================= */
+async function fetchForecast(loc){
+  const p=new URLSearchParams({latitude:loc.lat,longitude:loc.lon,
+    current:'temperature_2m,snowfall,wind_speed_10m,weather_code',
+    daily:'weather_code,temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max',
+    hourly:'freezing_level_height',
+    temperature_unit:'fahrenheit',wind_speed_unit:'mph',past_days:HIST_DAYS,forecast_days:FC_DAYS,timezone:'America/Denver'});
+  const r=await fetch('https://api.open-meteo.com/v1/forecast?'+p); if(!r.ok)throw new Error('fc '+r.status); return r.json();
+}
+async function fetchSnotel(loc,b,e){
+  const p=new URLSearchParams({stationTriplets:loc.snotel,elements:'SNWD',duration:'daily',beginDate:b,endDate:e});
+  const r=await fetch('https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?'+p); if(!r.ok)throw new Error('sn '+r.status); return r.json();
+}
+async function fetchSnotelMedian(loc,dateStr){
+  const d=new Date(dateStr+'T12:00:00'); const y=d.getFullYear();
+  const b=(y-1)+'-12-16', e=y+'-04-30';
+  const p=new URLSearchParams({stationTriplets:loc.snotel,elements:'SNWD',duration:'SEMIMONTHLY',centralTendencyType:'MEDIAN',beginDate:b,endDate:e,periodRef:'END'});
+  const r=await fetch('https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?'+p); if(!r.ok)throw new Error('med '+r.status);
+  const j=await r.json();
+  const vals=j&&j[0]&&j[0].data&&j[0].data[0]?(j[0].data[0].values||[]):[];
+  let best=null,bd=1e12;
+  vals.forEach(v=>{ if(v.value==null)return; const cd=v.collectionDate?v.collectionDate.slice(0,10):null; if(!cd)return;
+    const diff=Math.abs(new Date(cd)-new Date(dateStr)); if(diff<bd){bd=diff;best=v.value;} });
+  return best;
+}
+async function fetchCAIC(){
+  const r=await fetch('https://api.avalanche.org/v2/public/products/map-layer'); if(!r.ok)throw new Error('caic '+r.status);
+  const j=await r.json();
+  const f=j.features.find(f=>f.properties&&f.properties.center_id==='CAIC');
+  return f?f.properties:null;
 }
 
-/* ============================ HELPERS ============================ */
-const $ = id => document.getElementById(id);
-const r1 = v => Math.round(v * 10) / 10;
-const r0 = v => Math.round(v);
-
-/* Local (America/Denver) date as YYYY-MM-DD — fixes the UTC-midnight bug */
-function localToday() {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date());
-  const p = {}; parts.forEach(x => p[x.type] = x.value);
-  return `${p.year}-${p.month}-${p.day}`;
-}
-function shiftDate(iso, days) {
-  const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-function niceDay(iso, today) {
-  const d = new Date(iso + 'T12:00:00');
-  const dow = d.toLocaleDateString('en-US', { weekday: 'short' });
-  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  if (iso === today) return ['Today', md];
-  if (iso === shiftDate(today, 1)) return ['Tomorrow', md];
-  return [dow, md];
-}
-
-/* ============================ DATA FETCH ============================ */
-async function fetchForecast(resort) {
-  const params = new URLSearchParams({
-    latitude: resort.lat, longitude: resort.lon,
-    current: 'temperature_2m,snowfall,wind_speed_10m,weather_code',
-    daily: 'weather_code,temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max',
-    temperature_unit: 'fahrenheit', wind_speed_unit: 'mph',
-    past_days: HIST_DAYS, forecast_days: FC_DAYS, timezone: 'America/Denver',
-  });
-  const r = await fetch('https://api.open-meteo.com/v1/forecast?' + params);
-  if (!r.ok) throw new Error('forecast http ' + r.status);
-  return r.json();
-}
-
-/* Real observed snow depth (inches) from NRCS SNOTEL */
-async function fetchSnotel(resort, beginDate, endDate) {
-  const params = new URLSearchParams({
-    stationTriplets: resort.snotel, elements: 'SNWD', duration: 'daily',
-    beginDate, endDate,
-  });
-  const r = await fetch('https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?' + params);
-  if (!r.ok) throw new Error('snotel http ' + r.status);
-  return r.json();
-}
-
-function cmToIn(cm) { return cm / 2.54; }  // snowfall_sum is already SNOW depth in cm — no SLR multiply
-
-/* ============================ PROCESS ============================ */
-function process(resort, fc, sn) {
-  const today = localToday();
-  const daily = fc.daily;
-  const days = daily.time.map((date, i) => ({
-    date,
-    code: daily.weather_code[i],
-    tmax: daily.temperature_2m_max[i],
-    tmin: daily.temperature_2m_min[i],
-    snowIn: cmToIn(daily.snowfall_sum[i] || 0),   // corrected: no ratio multiply
-    pop: daily.precipitation_probability_max[i],
-    wind: daily.wind_speed_10m_max[i],
-    gust: daily.wind_gusts_10m_max[i],
-  }));
-
-  const hist = days.filter(d => d.date < today);
-  const future = days.filter(d => d.date >= today);
-
-  /* Observed new snow = day-over-day increase in SNOTEL snow depth (floor 0) */
-  let obs = [], depthNow = null, obsSource = null;
-  try {
-    const vals = sn && sn[0] && sn[0].data && sn[0].data[0] && sn[0].data[0].values ? sn[0].data[0].values : [];
-    const el = sn && sn[0] && sn[0].data && sn[0].data[0] ? sn[0].data[0].stationElement : null;
-    obsSource = el ? 'SNOTEL' : null;
-    let prev = null;
-    for (const v of vals) {
-      const depth = (v.value == null) ? null : Number(v.value);
-      if (depth != null && prev != null) {
-        obs.push({ date: v.date, newIn: Math.max(0, depth - prev) });
-      }
-      if (depth != null) { prev = depth; depthNow = depth; }
-    }
-  } catch (e) { obs = []; }
-
-  const obsTotal = r1(obs.reduce((s, o) => s + o.newIn, 0));
-  const fc72 = r1(future.slice(0, 3).reduce((s, d) => s + d.snowIn, 0));
-  const fc7d = r1(future.slice(0, 7).reduce((s, d) => s + d.snowIn, 0));
-
-  return { today, days, hist, future, obs, obsTotal, fc72, fc7d, depthNow, obsSource,
-           current: fc.current, currentUnits: fc.current_units };
-}
-
-/* ============================ MAP ============================ */
-function initMap() {
-  state.map = L.map('map', { zoomControl: true, attributionControl: true }).setView([39.25, -106.0], 8);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO',
-  }).addTo(state.map);
-
-  RESORTS.forEach(res => {
-    const m = L.marker([res.lat, res.lon], {
-      icon: L.divIcon({ className: '', html: `<div class="resort-marker" data-r="${res.name}"><span class="val">—</span></div>`, iconSize: null }),
-      title: res.name,
-    }).addTo(state.map);
-    m.on('click', () => selectResort(res, true));
-    state.markers[res.name] = m;
-  });
-
-  $('radarBtn').addEventListener('click', toggleRadar);
-}
-
-function updateMarker(res, d) {
-  const el = state.markers[res.name] && state.markers[res.name].getElement();
-  if (!el) return;
-  const mk = el.querySelector('.resort-marker');
-  const v = d ? d.fc72 : null;
-  const label = (v != null && v >= 0.1) ? v + '"' : '—';
-  mk.querySelector('.val').textContent = label;
-  mk.classList.toggle('big', v != null && v >= 6);
-  mk.classList.toggle('selected', state.selected === res.name);
-}
-
-function toggleRadar() {
-  state.radarOn = !state.radarOn;
-  const btn = $('radarBtn');
-  btn.classList.toggle('on', state.radarOn);
-  if (state.radarOn) {
-    state.radar = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png', { opacity: 0.6, attribution: 'RainViewer' }).addTo(state.map);
-  } else if (state.radar) {
-    state.map.removeLayer(state.radar); state.radar = null;
+/* ================= PROCESS ================= */
+function process(fc,sn,median){
+  const today=localToday(), daily=fc.daily;
+  const flByDate={};
+  if(fc.hourly&&fc.hourly.time&&fc.hourly.freezing_level_height){
+    fc.hourly.time.forEach((t,i)=>{ const dt=t.slice(0,10); const v=fc.hourly.freezing_level_height[i]; if(v==null)return;
+      const ft=mToFt(v); const o=flByDate[dt]||(flByDate[dt]={max:-1e9,min:1e9}); if(ft>o.max)o.max=ft; if(ft<o.min)o.min=ft; });
   }
+  const days=daily.time.map((date,i)=>({date,code:daily.weather_code[i],tmax:daily.temperature_2m_max[i],tmin:daily.temperature_2m_min[i],
+    snowIn:cmToIn(daily.snowfall_sum[i]||0),pop:daily.precipitation_probability_max[i],wind:daily.wind_speed_10m_max[i],gust:daily.wind_gusts_10m_max[i],
+    flMax:flByDate[date]?flByDate[date].max:null, flMin:flByDate[date]?flByDate[date].min:null}));
+  const future=days.filter(d=>d.date>=today);
+  let obs=[],depthNow=null;
+  try{const vals=sn&&sn[0]&&sn[0].data&&sn[0].data[0]?(sn[0].data[0].values||[]):[];let prev=null;
+    for(const v of vals){const dep=v.value==null?null:Number(v.value); if(dep!=null&&prev!=null)obs.push({date:v.date,newIn:Math.max(0,dep-prev)}); if(dep!=null){prev=dep;depthNow=dep;}}}catch(e){obs=[];}
+  const obsTotal=r1(obs.reduce((s,o)=>s+o.newIn,0));
+  const pctNormal=(depthNow!=null&&median!=null&&median>0)?Math.round((depthNow/median)*100):null;
+  return {today,days,future,obs,obsTotal,depthNow,median,pctNormal,
+    fc72:r1(future.slice(0,3).reduce((s,d)=>s+d.snowIn,0)),fc7d:r1(future.slice(0,7).reduce((s,d)=>s+d.snowIn,0)),
+    windNow:r0((fc.current&&fc.current.wind_speed_10m)||0),current:fc.current||{}};
 }
 
-/* ============================ RENDER ============================ */
-function confidence(dayIndex, pop) {
-  // confidence decays with lead time, nudged by precip probability
-  const base = Math.max(0.25, 1 - dayIndex * 0.075);
-  const adj = pop != null ? (pop / 100) * 0.2 : 0;
-  const c = Math.min(0.98, base + adj);
-  const label = c > 0.75 ? 'High' : c > 0.5 ? 'Medium' : 'Low';
-  const color = c > 0.75 ? 'var(--good)' : c > 0.5 ? 'var(--accent)' : 'var(--warn)';
-  return { pct: Math.round(c * 100), label, color };
+function slr(tmax,wind){ let s=10; if(tmax<=14)s+=7; else if(tmax<=20)s+=5; else if(tmax<=26)s+=3; else if(tmax<=32)s+=1;
+  if(wind>=30)s-=2; else if(wind<=10)s+=1; return Math.max(4,Math.min(22,s)); }
+function snowQuality(day){ if(day.snowIn<0.1)return null; const r=slr(day.tmax,day.wind);
+  if(r>=15)return{t:'Blower',c:'#7ee0ff'}; if(r>=12)return{t:'Powder',c:'#4cc2ff'}; if(r>=9)return{t:'Packed',c:'#c8d2dc'}; return{t:'Dense',c:'#ffb454'}; }
+
+function bestDay(future){ let best=null,bs=-1;
+  future.slice(0,7).forEach((d,i)=>{ const conf=Math.max(.25,1-i*.075);
+    const score=d.snowIn*2+(d.pop||0)/100*1.5-Math.max(0,(d.gust||0)-25)*.06+conf;
+    if(score>bs&&d.snowIn>=0.3){bs=score;best=d.date;} });
+  return best; }
+
+function detectStorm(){
+  const today=localToday(); let maxLen=0;
+  Object.values(state.data).forEach(d=>{ if(d&&d.future)maxLen=Math.max(maxLen,Math.min(7,d.future.length)); });
+  if(maxLen===0)return null;
+  const countPerDay=[],totPerDay=[],regionsPerDay=[];
+  for(let i=0;i<maxLen;i++){ countPerDay[i]=0; totPerDay[i]=0; regionsPerDay[i]=new Set();
+    LOCATIONS.forEach(loc=>{ const d=state.data[loc.name]; if(!d||!d.future||!d.future[i])return;
+      if(d.future[i].snowIn>=0.3){ countPerDay[i]++; totPerDay[i]+=d.future[i].snowIn; regionsPerDay[i].add(loc.region); } }); }
+  let run=[],runs=[];
+  for(let i=0;i<maxLen;i++){ if(countPerDay[i]>=3)run.push(i); else { if(run.length){runs.push(run);run=[];} } }
+  if(run.length)runs.push(run);
+  if(!runs.length)return null;
+  let bestRun=null,bestTot=0;
+  runs.forEach(run=>{ const tot=run.reduce((s,i)=>s+totPerDay[i],0); if(tot>bestTot){bestTot=tot;bestRun=run;} });
+  const first=bestRun[0],last=bestRun[bestRun.length-1];
+  let lo=1e9,hi=0,regions=new Set();
+  LOCATIONS.forEach(loc=>{ const d=state.data[loc.name]; if(!d||!d.future)return;
+    let t=0; for(let i=first;i<=last;i++)t+=(d.future[i]?d.future[i].snowIn:0);
+    if(t>=0.3){ lo=Math.min(lo,t); hi=Math.max(hi,t); regions.add(loc.region); } });
+  if(hi<1)return null;
+  const anyD=Object.values(state.data).find(d=>d&&d.future&&d.future[first]);
+  const sDate=anyD?anyD.future[first].date:null, eDate=anyD?anyD.future[last].date:null;
+  return {lo:r1(lo),hi:r1(hi),sDate,eDate,regions:[...regions]};
+}
+function renderStormBanner(){
+  const st=detectStorm(), b=$('stormBanner');
+  if(!st||!st.sDate){ b.classList.remove('show'); document.body.classList.remove('banner'); return; }
+  const sd=new Date(st.sDate+'T12:00:00'), ed=new Date(st.eDate+'T12:00:00');
+  const span=sd.toLocaleDateString('en-US',{weekday:'short'})+(st.sDate!==st.eDate?'–'+ed.toLocaleDateString('en-US',{weekday:'short'}):'');
+  const regTxt=st.regions.length>=3?'statewide':st.regions.join(', ');
+  b.querySelector('.txt').innerHTML=`<b>${st.lo}–${st.hi}"</b> possible ${span} · ${regTxt}`;
+  b.classList.add('show'); document.body.classList.add('banner');
+  b.onclick=()=>showView('compare');
 }
 
-function renderPanel(res, d) {
-  const cur = d.current || {};
-  const curT = cur.temperature_2m != null ? r0(cur.temperature_2m) + '°' : '—';
-  const depth = d.depthNow != null ? r0(d.depthNow) + '"' : '—';
+/* ================= MAP ================= */
+function initMap(){
+  state.map=L.map('map',{zoomControl:true}).setView([39.2,-106.05],8);
+  const dark=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:16,attribution:'Esri, HERE, Garmin, (c) OSM'});
+  const topo=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'(c) OSM, SRTM | OpenTopoMap (CC-BY-SA)'});
+  const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:18,attribution:'Esri, Maxar'});
+  dark.addTo(state.map);
+  L.control.layers({'Dark':dark,'Terrain':topo,'Satellite':sat},null,{position:'bottomright'}).addTo(state.map);
+  LOCATIONS.forEach(loc=>{
+    const fav=state.favs.has(loc.name)?'<span class="fav">★</span>':'';
+    const m=L.marker([loc.lat,loc.lon],{icon:L.divIcon({className:'',html:`<div class="resort-marker ${loc.kind==='bc'?'bc':''}">${fav}<span class="val">—</span></div>`,iconSize:null}),title:loc.name}).addTo(state.map);
+    m.on('click',()=>selectLocation(loc,true)); state.markers[loc.name]=m;
+  });
+  $('radarBtn').addEventListener('click',toggleRadar);
+}
+function updateMarker(loc,d){
+  const el=state.markers[loc.name]&&state.markers[loc.name].getElement(); if(!el)return;
+  const mk=el.querySelector('.resort-marker'), v=d?d.fc72:null;
+  mk.querySelector('.val').textContent=(v!=null&&v>=0.1)?v+'"':'—';
+  mk.classList.toggle('big',v!=null&&v>=6);
+  mk.classList.toggle('selected',state.selected===loc.name);
+  let fv=mk.querySelector('.fav'); const has=state.favs.has(loc.name);
+  if(has&&!fv)mk.insertAdjacentHTML('afterbegin','<span class="fav">★</span>'); if(!has&&fv)fv.remove();
+}
+async function toggleRadar(){
+  state.radarOn=!state.radarOn; $('radarBtn').classList.toggle('on',state.radarOn);
+  if(state.radarOn){ try{ if(!state.radarPath){const m=await fetch('https://api.rainviewer.com/public/weather-maps.json').then(r=>r.json());const past=m.radar.past;state.radarPath=past[past.length-1].path;}
+    state.radar=L.tileLayer('https://tilecache.rainviewer.com'+state.radarPath+'/256/{z}/{x}/{y}/2/1_1.png',{opacity:.6,attribution:'RainViewer'}).addTo(state.map);
+  }catch(e){state.radarOn=false;$('radarBtn').classList.remove('on');} }
+  else if(state.radar){state.map.removeLayer(state.radar);state.radar=null;}
+}
 
-  let html = `
+/* ================= AVALANCHE WIDGET ================= */
+function renderAvy(loc){
+  const c=state.caic; if(!c)return'';
+  if(c.danger_level<1){ return loc.kind==='bc'?`<div class="avy"><div class="avy-head"><span class="t">Avalanche danger · CAIC</span></div><div class="avy-off">Daily forecasts resume in season (typically Nov 1). Always check <a class="avy-link" href="https://avalanche.state.co.us/" target="_blank" rel="noopener">CAIC</a> before backcountry travel.</div></div>`:''; }
+  const L=c.danger_level, advice=c.travel_advice||'';
+  return `<div class="avy"><div class="avy-head"><span class="t">Avalanche danger · CAIC</span>
+    <span style="background:${AVY_C[L]};color:${L>=2&&L<=3?'#000':'#fff'};font-size:10px;font-weight:800;padding:2px 8px;border-radius:4px">${AVY[L].toUpperCase()} (${L}/5)</span></div>
+    <div style="font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:6px">${advice}</div>
+    <a class="avy-link" href="${c.link||'https://avalanche.state.co.us/'}" target="_blank" rel="noopener">Full CAIC forecast →</a></div>`;
+}
+
+/* ================= FREEZING LEVEL CHART ================= */
+function renderFL(d,loc){
+  const W=320,H=150,padL=34,padB=22,padT=12,padR=8;
+  const fut=d.future.slice(0,10).filter(f=>f.flMax!=null&&f.flMin!=null); if(!fut.length)return'';
+  const n=fut.length,iw=W-padL-padR,ih=H-padT-padB;
+  const maxFt=Math.max(loc.elev+500,...fut.map(f=>f.flMax))*1.02, minFt=Math.min(6000,...fut.map(f=>f.flMin))*.98;
+  const x=i=>padL+(i+.5)*(iw/n), y=ft=>padT+ih-((ft-minFt)/(maxFt-minFt))*ih;
+  let band='',line='',lbl='',grid='';
+  for(let g=0;g<=3;g++){const ft=minFt+(maxFt-minFt)*g/3; grid+=`<line x1="${padL}" y1="${y(ft)}" x2="${W-padR}" y2="${y(ft)}" stroke="#232a36"/><text x="${padL-5}" y="${y(ft)+3}" fill="#5c6774" font-size="8.5" text-anchor="end">${r0(ft/1000)}k</text>`;}
+  const ptsMax=fut.map((f,i)=>[x(i),y(f.flMax)]), ptsMin=fut.map((f,i)=>[x(i),y(f.flMin)]);
+  band=`<path d="M${ptsMax.map(p=>p.join(',')).join(' L')} L${ptsMin.slice().reverse().map(p=>p.join(',')).join(' L')} Z" fill="rgba(76,194,255,.15)"/>`;
+  line=`<polyline points="${ptsMax.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#4cc2ff" stroke-width="1.5"/>
+        <polyline points="${ptsMin.map(p=>p.join(',')).join(' ')}" fill="none" stroke="#4cc2ff" stroke-width="1" stroke-dasharray="3 3"/>`;
+  if(loc.elev>=minFt&&loc.elev<=maxFt)grid+=`<line x1="${padL}" y1="${y(loc.elev)}" x2="${W-padR}" y2="${y(loc.elev)}" stroke="#ffd166" stroke-dasharray="4 3"/><text x="${W-padR}" y="${y(loc.elev)-3}" fill="#ffd166" font-size="8.5" text-anchor="end">${loc.kind==='bc'?'pass':'summit'}</text>`;
+  fut.forEach((f,i)=>{ if(i%Math.ceil(n/6)===0){const dt=new Date(f.date+'T12:00:00'); lbl+=`<text x="${x(i)}" y="${H-7}" fill="#5c6774" font-size="8.5" text-anchor="middle">${dt.toLocaleDateString('en-US',{month:'numeric',day:'numeric'})}</text>`;} });
+  return `<div class="sec-title">Freezing level (ft)</div><div class="chart-wrap"><svg class="fl-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${band}${line}${lbl}</svg>
+    <div class="chart-legend"><div class="k"><span class="sw" style="background:rgba(76,194,255,.4)"></span>Snow level range</div><div class="k"><span class="sw" style="background:#ffd166"></span>${loc.kind==='bc'?'Pass':'Summit'} elevation</div></div></div>`;
+}
+
+/* ================= DETAIL PANEL ================= */
+function confidence(i,pop){const base=Math.max(.25,1-i*.075),adj=pop!=null?(pop/100)*.2:0,c=Math.min(.98,base+adj);
+  const label=c>.75?'High':c>.5?'Medium':'Low',color=c>.75?'var(--good)':c>.5?'var(--accent)':'var(--warn)';return{pct:Math.round(c*100),label,color};}
+
+function renderPanel(loc,d){
+  const curT=d.current.temperature_2m!=null?r0(d.current.temperature_2m)+'°':'—';
+  const depth=d.depthNow!=null?r0(d.depthNow):'—';
+  const kindTag=loc.kind==='bc'?'<span class="kindtag bc">BACKCOUNTRY</span>':'<span class="kindtag res">RESORT</span>';
+  const best=bestDay(d.future);
+  const fav=state.favs.has(loc.name)?'on':'';
+  const pct=d.pctNormal!=null?`<div class="sub ${d.pctNormal>=100?'pct-good':'pct-bad'}">${d.pctNormal}% of normal</div>`:`<div class="sub">on the ground</div>`;
+  let html=`
     <div class="panel-head">
-      <div>
-        <h2>${res.name}</h2>
-        <div class="region">${res.region} Colorado</div>
-        <div class="elev">Summit <b>${res.elev.toLocaleString()} ft</b></div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:26px;font-weight:800;line-height:1">${curT}</div>
-        <div style="font-size:10.5px;color:var(--muted);margin-top:2px">current</div>
-      </div>
+      <div><h2>${loc.name} <button class="fav-btn ${fav}" data-fav="${loc.name}" title="Favorite">${state.favs.has(loc.name)?'★':'☆'}</button></h2>
+      <div class="region">${loc.region} Colorado ${kindTag}</div>
+      <div class="elev">${loc.kind==='bc'?'Pass':'Summit'} <b>${loc.elev.toLocaleString()} ft</b></div>
+      ${best?`<div class="go-badge">BEST DAY: ${niceDay(best,d.today)[0].toUpperCase()}</div>`:''}</div>
+      <div style="text-align:right"><div style="font-size:26px;font-weight:800;line-height:1">${curT}</div><div style="font-size:10.5px;color:var(--muted);margin-top:2px">current</div></div>
     </div>
-
     <div class="stat-grid">
-      <div class="stat">
-        <div class="label">Past 7 days <span class="obs-tag">OBS</span></div>
-        <div class="val">${d.obsTotal}<small>"</small></div>
-        <div class="sub">SNOTEL new snow</div>
-      </div>
-      <div class="stat">
-        <div class="label">Snow depth <span class="obs-tag">OBS</span></div>
-        <div class="val">${depth.replace('"','')}<small>"</small></div>
-        <div class="sub">on the ground</div>
-      </div>
-      <div class="stat accent">
-        <div class="label">Next 72 hrs <span class="fc-tag">FCST</span></div>
-        <div class="val">${d.fc72}<small>"</small></div>
-        <div class="sub">expected new snow</div>
-      </div>
-      <div class="stat">
-        <div class="label">Next 7 days <span class="fc-tag">FCST</span></div>
-        <div class="val">${d.fc7d}<small>"</small></div>
-        <div class="sub">expected new snow</div>
-      </div>
+      <div class="stat"><div class="label">Past 7 days <span class="obs-tag">OBS</span></div><div class="val">${d.obsTotal}<small>"</small></div><div class="sub">SNOTEL new snow</div></div>
+      <div class="stat"><div class="label">Snow depth <span class="obs-tag">OBS</span></div><div class="val">${depth}<small>"</small></div>${pct}</div>
+      <div class="stat accent"><div class="label">Next 72 hrs <span class="fc-tag">FCST</span></div><div class="val">${d.fc72}<small>"</small></div><div class="sub">expected new snow</div></div>
+      <div class="stat"><div class="label">Next 7 days <span class="fc-tag">FCST</span></div><div class="val">${d.fc7d}<small>"</small></div><div class="sub">expected new snow</div></div>
     </div>
-
+    ${renderAvy(loc)}
     <div class="sec-title">14-day snowfall</div>
-    <div class="chart-wrap">
-      ${renderChart(d)}
-      <div class="chart-legend">
-        <div class="k"><span class="sw" style="background:#3ddc97"></span>Observed (SNOTEL)</div>
-        <div class="k"><span class="sw" style="background:#4cc2ff"></span>Forecast</div>
-      </div>
-    </div>
-
+    <div class="chart-wrap">${renderChart(d)}
+      <div class="chart-legend"><div class="k"><span class="sw" style="background:#3ddc97"></span>Observed (SNOTEL)</div><div class="k"><span class="sw" style="background:#4cc2ff"></span>Forecast</div></div></div>
+    ${renderFL(d,loc)}
     <div class="sec-title">Daily forecast</div>
-    ${d.future.slice(0, 7).map((day, i) => renderDayCard(day, d.today, i)).join('')}
-
+    ${d.future.slice(0,7).map((day,i)=>renderDayCard(day,d.today,i,best)).join('')}
     <div class="sec-title">All days</div>
-    <div class="chart-wrap" style="padding:6px 8px">
-      <table>
-        <thead><tr><th>Day</th><th>High</th><th>Low</th><th>Snow</th><th>POP</th></tr></thead>
-        <tbody>
-          ${d.future.map((day) => {
-            const [dw, md] = niceDay(day.date, d.today);
-            const s = day.snowIn >= 0.1 ? r1(day.snowIn) + '"' : '—';
-            return `<tr><td>${dw} <span style="color:var(--dim);font-size:10px">${md}</span></td><td class="t">${r0(day.tmax)}°</td><td style="color:var(--muted)">${r0(day.tmin)}°</td><td class="s">${s}</td><td style="color:var(--muted)">${day.pop != null ? day.pop + '%' : '—'}</td></tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="src-note">
-      <b>Observed:</b> NRCS SNOTEL station ${res.snotel.split(':')[0]} (daily snow depth, new snow = depth increase).<br>
-      <b>Forecast:</b> Open-Meteo model blend at a point near the resort; point elevation may differ from summit. Updated just now.
-    </div>
-  `;
-  $('panelContent').innerHTML = html;
+    <div class="chart-wrap" style="padding:6px 8px"><table><thead><tr><th>Day</th><th>High</th><th>Low</th><th>Snow</th><th>Quality</th><th>POP</th></tr></thead><tbody>
+      ${d.future.map(day=>{const[dw,md]=niceDay(day.date,d.today);const s=day.snowIn>=0.1?r1(day.snowIn)+'"':'—';const q=snowQuality(day);
+        return `<tr><td>${dw} <span style="color:var(--dim);font-size:10px">${md}</span></td><td class="t">${r0(day.tmax)}°</td><td style="color:var(--muted)">${r0(day.tmin)}°</td><td class="s">${s}</td><td>${q?`<span class="qtag" style="background:${q.c}22;color:${q.c}">${q.t}</span>`:'—'}</td><td style="color:var(--muted)">${day.pop!=null?day.pop+'%':'—'}</td></tr>`;}).join('')}
+    </tbody></table></div>
+    <div class="src-note"><b>Observed:</b> NRCS SNOTEL station ${loc.snotel.split(':')[0]} (daily depth; % vs 30-yr median).<br><b>Forecast:</b> Open-Meteo at a point; elevation may differ from summit. Snow quality from temp+wind.<br>${loc.kind==='bc'?'<b>Backcountry:</b> check the CAIC avalanche forecast before travel.':'<b>Avalanche:</b> CAIC via avalanche.org (in season).'}</div>`;
+  $('panelContent').innerHTML=html;
+  document.querySelectorAll('#panelContent .fav-btn').forEach(b=>b.addEventListener('click',()=>{toggleFav(b.dataset.fav); b.classList.toggle('on'); b.textContent=state.favs.has(b.dataset.fav)?'★':'☆';}));
 }
-
-function renderDayCard(day, today, idx) {
-  const [dw, md] = niceDay(day.date, today);
-  const s = day.snowIn >= 0.1 ? r1(day.snowIn) : null;
-  const c = confidence(idx, day.pop);
-  const windHold = day.gust != null && day.gust >= 40;
-  return `
-    <div class="day-card">
-      <div class="day-top">
-        <div style="display:flex;align-items:center;gap:9px">
-          ${wxIcon(day.code)}
-          <div class="d">${dw}<small>${md}</small></div>
-        </div>
-        <div class="snow-pill ${s ? '' : 'none'}">${s ? s + '"' : '—'}</div>
-      </div>
-      <div class="day-meta">
-        <span>High <b>${r0(day.tmax)}°</b></span>
-        <span>Low <b>${r0(day.tmin)}°</b></span>
-        <span>POP <b>${day.pop != null ? day.pop + '%' : '—'}</b></span>
-        <span style="display:flex;align-items:center;gap:4px">${IC.wind}<b>${r0(day.wind)} mph</b></span>
-      </div>
-      ${windHold ? `<div class="wind-flag">${IC.alert} Lift-hold risk — gusts to ${r0(day.gust)} mph</div>` : ''}
-      <div class="conf">
-        <div class="bar"><i style="width:${c.pct}%;background:${c.color}"></i></div>
-        <span style="color:${c.color}">${c.label}</span>
-      </div>
-    </div>`;
+function renderDayCard(day,today,idx,best){
+  const[dw,md]=niceDay(day.date,today);const s=day.snowIn>=0.1?r1(day.snowIn):null;const c=confidence(idx,day.pop);const wh=day.gust!=null&&day.gust>=40;
+  const q=snowQuality(day);const isGo=best&&day.date===best;
+  return `<div class="day-card ${isGo?'go':''}"><div class="day-top"><div style="display:flex;align-items:center;gap:9px">${wxIcon(day.code)}<div class="d">${dw}<small>${md}</small></div>${isGo?'<span class="go-mini">GO</span>':''}</div><div class="snow-pill ${s?'':'none'}">${s?s+'"':'—'}</div></div>
+  <div class="day-meta"><span>High <b>${r0(day.tmax)}°</b></span><span>Low <b>${r0(day.tmin)}°</b></span><span>POP <b>${day.pop!=null?day.pop+'%':'—'}</b></span><span style="display:flex;align-items:center;gap:4px">${IC.wind}<b>${r0(day.wind)} mph</b></span>${q?`<span class="qtag" style="background:${q.c}22;color:${q.c}">${q.t}</span>`:''}</div>
+  ${wh?`<div class="wind-flag">${IC.alert} Lift-hold / transport risk — gusts to ${r0(day.gust)} mph</div>`:''}
+  <div class="conf"><div class="bar"><i style="width:${c.pct}%;background:${c.color}"></i></div><span style="color:${c.color}">${c.label}</span></div></div>`;
 }
-
-function renderChart(d) {
-  const W = 320, H = 190, padL = 30, padB = 26, padT = 14, padR = 8;
-  const obsByDate = {}; d.obs.forEach(o => obsByDate[o.date] = o.newIn);
-  const all = d.days.map(day => ({
-    date: day.date,
-    obs: obsByDate[day.date] != null ? obsByDate[day.date] : null,
-    fc: day.date >= d.today ? day.snowIn : null,
-  }));
-  const maxV = Math.max(1, ...all.map(a => Math.max(a.obs || 0, a.fc || 0)));
-  const n = all.length;
-  const iw = W - padL - padR, ih = H - padT - padB;
-  const x = i => padL + (i + 0.5) * (iw / n);
-  const y = v => padT + ih - (v / maxV) * ih;
-  const bw = Math.max(4, (iw / n) * 0.6);
-
-  let bars = '', labels = '', grid = '';
-  for (let g = 0; g <= 4; g++) {
-    const gv = (maxV / 4) * g;
-    grid += `<line x1="${padL}" y1="${y(gv)}" x2="${W - padR}" y2="${y(gv)}" stroke="#232a36" stroke-width="1"/>` +
-            `<text x="${padL - 6}" y="${y(gv) + 3}" fill="#5c6774" font-size="9" text-anchor="end">${r1(gv)}</text>`;
-  }
-  all.forEach((a, i) => {
-    const date = new Date(a.date + 'T12:00:00');
-    if (i % Math.ceil(n / 7) === 0) {
-      labels += `<text x="${x(i)}" y="${H - 8}" fill="#5c6774" font-size="9" text-anchor="middle">${date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</text>`;
-    }
-    if (a.obs != null && a.obs >= 0.05) {
-      const h = (a.obs / maxV) * ih;
-      bars += `<rect x="${x(i) - bw / 2}" y="${y(a.obs)}" width="${bw}" height="${Math.max(1.5, h)}" rx="2" fill="#3ddc97"/>`;
-    }
-    if (a.fc != null && a.fc >= 0.05) {
-      const h = (a.fc / maxV) * ih;
-      bars += `<rect x="${x(i) - bw / 2}" y="${y(a.fc)}" width="${bw}" height="${Math.max(1.5, h)}" rx="2" fill="#4cc2ff"/>`;
-    }
-  });
-  // "today" divider
-  const ti = all.findIndex(a => a.date === d.today);
-  if (ti >= 0) {
-    grid += `<line x1="${x(ti)}" y1="${padT}" x2="${x(ti)}" y2="${H - padB}" stroke="#2c3542" stroke-dasharray="3 3"/>`;
-  }
+function renderChart(d){
+  const W=320,H=190,padL=30,padB=26,padT=14,padR=8,obsBy={};d.obs.forEach(o=>obsBy[o.date]=o.newIn);
+  const all=d.days.map(day=>({date:day.date,obs:obsBy[day.date]!=null?obsBy[day.date]:null,fc:day.date>=d.today?day.snowIn:null}));
+  const maxV=Math.max(1,...all.map(a=>Math.max(a.obs||0,a.fc||0))),n=all.length,iw=W-padL-padR,ih=H-padT-padB;
+  const x=i=>padL+(i+.5)*(iw/n),y=v=>padT+ih-(v/maxV)*ih,bw=Math.max(4,(iw/n)*.6);
+  let bars='',labels='',grid='';
+  for(let g=0;g<=4;g++){const gv=(maxV/4)*g;grid+=`<line x1="${padL}" y1="${y(gv)}" x2="${W-padR}" y2="${y(gv)}" stroke="#232a36"/><text x="${padL-6}" y="${y(gv)+3}" fill="#5c6774" font-size="9" text-anchor="end">${r1(gv)}</text>`;}
+  all.forEach((a,i)=>{const date=new Date(a.date+'T12:00:00');
+    if(i%Math.ceil(n/7)===0)labels+=`<text x="${x(i)}" y="${H-8}" fill="#5c6774" font-size="9" text-anchor="middle">${date.toLocaleDateString('en-US',{month:'numeric',day:'numeric'})}</text>`;
+    if(a.obs!=null&&a.obs>=0.05)bars+=`<rect x="${x(i)-bw/2}" y="${y(a.obs)}" width="${bw}" height="${Math.max(1.5,(a.obs/maxV)*ih)}" rx="2" fill="#3ddc97"/>`;
+    if(a.fc!=null&&a.fc>=0.05)bars+=`<rect x="${x(i)-bw/2}" y="${y(a.fc)}" width="${bw}" height="${Math.max(1.5,(a.fc/maxV)*ih)}" rx="2" fill="#4cc2ff"/>`;});
+  const ti=all.findIndex(a=>a.date===d.today);if(ti>=0)grid+=`<line x1="${x(ti)}" y1="${padT}" x2="${x(ti)}" y2="${H-padB}" stroke="#2c3542" stroke-dasharray="3 3"/>`;
   return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${bars}${labels}</svg>`;
 }
+function skeleton(){$('panelContent').innerHTML=`<div class="skel" style="height:70px;margin-bottom:16px"></div><div class="stat-grid">${'<div class="skel" style="height:74px"></div>'.repeat(4)}</div><div class="skel" style="height:200px;margin:18px 0"></div>${'<div class="skel" style="height:86px;margin-bottom:8px"></div>'.repeat(4)}`;}
 
-function skeleton() {
-  $('panelContent').innerHTML = `
-    <div class="skel" style="height:70px;margin-bottom:16px"></div>
-    <div class="stat-grid">${'<div class="skel" style="height:74px"></div>'.repeat(4)}</div>
-    <div class="skel" style="height:220px;margin:18px 0"></div>
-    ${'<div class="skel" style="height:86px;margin-bottom:8px"></div>'.repeat(4)}`;
+/* ================= COMPARE VIEW ================= */
+function metricVal(d,m){if(!d)return -1;if(m==='fc72')return d.fc72;if(m==='fc7d')return d.fc7d;if(m==='obs')return d.obsTotal;if(m==='depth')return d.depthNow!=null?d.depthNow:-1;return -1;}
+function renderCompare(){
+  const{kind,metric}=state.cmp;
+  let rows=LOCATIONS.map(loc=>({loc,d:state.data[loc.name]}));
+  if(kind==='fav')rows=rows.filter(r=>state.favs.has(r.loc.name));
+  else if(kind!=='all')rows=rows.filter(r=>r.loc.kind===kind);
+  rows=rows.map(r=>({...r,v:metricVal(r.d,metric)})).filter(r=>r.v>=0);
+  rows.sort((a,b)=>{const fa=state.favs.has(a.loc.name)?1:0,fb=state.favs.has(b.loc.name)?1:0; if(fa!==fb)return fb-fa; return b.v-a.v;});
+  const max=Math.max(1,...rows.map(r=>r.v));
+  const medals=['1st','2nd','3rd'];
+  $('podium').innerHTML=rows.length?rows.slice(0,3).map((r,i)=>{const depth=r.d&&r.d.depthNow!=null?r0(r.d.depthNow)+'" base':'— base';
+    return `<div class="pod p${i+1}" data-n="${r.loc.name}"><div class="rank">${i+1}</div><span class="medal">${medals[i]}</span><h3>${r.loc.name}</h3><div class="where">${r.loc.region} · ${r.loc.kind==='bc'?'Backcountry':'Resort'}</div><div class="num">${r1(r.v)}<small>"</small></div><div class="depth">${metric==='depth'?'current base':'next '+(metric==='fc72'?'72 hrs':'7 days')} · <b>${depth}</b></div></div>`;}).join('')
+    :'<div style="grid-column:1/-1;color:var(--dim);padding:30px;text-align:center;font-size:13px">No favorites yet — tap ★ on any location to pin it here.</div>';
+  let board=`<div class="board-row hdr"><div>#</div><div>Location</div><div style="text-align:right">${metric==='depth'?'Base':'Snow'}</div><div></div><div style="text-align:right">Base</div><div style="text-align:right">Wind</div></div>`;
+  board+=rows.map((r,i)=>{const kd=r.loc.kind==='bc'?'<span class="kind b">BC</span>':'<span class="kind r">RES</span>';const fav=state.favs.has(r.loc.name)?'on':'';
+    const depth=r.d&&r.d.depthNow!=null?r0(r.d.depthNow)+'"':'—';const wind=r.d?r.d.windNow+' mph':'—';const pct=Math.max(2,(r.v/max)*100);
+    return `<div class="board-row" data-n="${r.loc.name}"><div class="b-rank">${i+1}</div>
+      <div class="b-name"><button class="fbtn ${fav}" data-fav="${r.loc.name}">${state.favs.has(r.loc.name)?'★':'☆'}</button>${r.loc.name}${kd}<span class="reg">${r.loc.region}</span></div>
+      <div class="b-snow">${r1(r.v)}<small>"</small></div><div class="b-bar ${i===0?'max':''}"><i style="width:${pct}%"></i></div>
+      <div class="b-depth"><b>${depth}</b></div><div class="b-wind">${wind}</div></div>`;}).join('');
+  $('board').innerHTML=board||'<div style="padding:20px;color:var(--dim)">No data.</div>';
+  $('miniGrid').innerHTML=rows.slice(0,12).map(r=>{const fut=r.d?r.d.future.slice(0,7):[];const mx=Math.max(.5,...fut.map(f=>f.snowIn));
+    const bars=fut.map((f,i)=>{const h=f.snowIn<=0?0:Math.max(2,(f.snowIn/mx)*38);const x=i*18+3;return `<rect x="${x}" y="${42-h}" width="12" height="${h}" rx="1.5" fill="#4cc2ff" opacity="${f.snowIn<=0?.25:.9}"/>`;}).join('');
+    return `<div class="mini" data-n="${r.loc.name}"><h4>${r.loc.name}</h4><svg viewBox="0 0 132 42" preserveAspectRatio="none">${bars}</svg><div class="tot">7-day <b>${r.d?r.d.fc7d+'"':'—'}</b></div></div>`;}).join('');
+  document.querySelectorAll('#compareView [data-n]').forEach(el=>{el.addEventListener('click',e=>{if(e.target.classList.contains('fbtn'))return;const loc=LOCATIONS.find(l=>l.name===el.getAttribute('data-n'));if(loc){showView('map');selectLocation(loc,true);}});});
+  document.querySelectorAll('#compareView .fbtn').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();toggleFav(b.dataset.fav);}));
 }
 
-/* ============================ ORCHESTRATION ============================ */
-async function loadResort(res) {
-  const end = localToday();
-  const begin = shiftDate(end, -(HIST_DAYS + 1));
-  const [fc, sn] = await Promise.all([
-    fetchForecast(res),
-    fetchSnotel(res, begin, end).catch(() => null),
-  ]);
-  const d = process(res, fc, sn);
-  state.data[res.name] = d;
-  updateMarker(res, d);
-  return d;
+/* ================= ORCHESTRATION ================= */
+async function loadLocation(loc){
+  const end=localToday(),begin=shiftDate(end,-(HIST_DAYS+1));
+  const[fc,sn,med]=await Promise.all([fetchForecast(loc),fetchSnotel(loc,begin,end).catch(()=>null),fetchSnotelMedian(loc,end).catch(()=>null)]);
+  const d=process(fc,sn,med);state.data[loc.name]=d;updateMarker(loc,d);return d;
 }
-
-async function selectResort(res, fromMap) {
-  state.selected = res.name;
-  Object.values(state.markers).forEach(m => {
-    const el = m.getElement(); if (el) el.querySelector('.resort-marker').classList.remove('selected');
-  });
+async function selectLocation(loc,fromMap){
+  state.selected=loc.name;
+  Object.values(state.markers).forEach(m=>{const e=m.getElement();if(e)e.querySelector('.resort-marker').classList.remove('selected');});
   skeleton();
-  try {
-    const d = await loadResort(res);
-    renderPanel(res, d);
-    updateMarker(res, d);
-    if (fromMap) state.map.panTo([res.lat, res.lon], { animate: true });
-    const mk = state.markers[res.name];
-    mk.bindPopup(`<b>${res.name}</b><br>72-hr forecast: <b>${d.fc72}"</b><br>7-day observed: <b>${d.obsTotal}"</b>`).openPopup();
-  } catch (e) {
-    $('panelContent').innerHTML = `<div style="padding:20px;color:var(--bad);font-size:13px">Failed to load data for ${res.name}.<br><span style="color:var(--muted);font-size:11px">${e.message}</span></div>`;
-  }
+  try{const d=await loadLocation(loc);renderPanel(loc,d);updateMarker(loc,d);
+    if(fromMap)state.map.panTo([loc.lat,loc.lon],{animate:true});
+    state.markers[loc.name].bindPopup(`<b>${loc.name}</b><br>72-hr forecast: <b>${d.fc72}"</b><br>7-day observed: <b>${d.obsTotal}"</b>${d.pctNormal!=null?`<br>Base: <b>${d.pctNormal}%</b> of normal`:''}`).openPopup();
+  }catch(e){$('panelContent').innerHTML=`<div style="padding:20px;color:var(--bad);font-size:13px">Failed to load ${loc.name}.<br><span style="color:var(--muted);font-size:11px">${e.message}</span></div>`;}
 }
-
-async function refreshAll() {
-  await Promise.all(RESORTS.map(r => loadResort(r).catch(() => null)));
-  if (state.selected) {
-    const res = RESORTS.find(r => r.name === state.selected);
-    if (res && state.data[res.name]) renderPanel(res, state.data[res.name]);
-  }
-  const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' });
-  $('clock').textContent = 'Updated ' + now;
+async function refreshAll(){
+  fetchCAIC().then(c=>state.caic=c).catch(()=>{});
+  await Promise.all(LOCATIONS.map(l=>loadLocation(l).catch(()=>null)));
+  if(state.selected){const loc=LOCATIONS.find(l=>l.name===state.selected);if(loc&&state.data[loc.name])renderPanel(loc,state.data[loc.name]);}
+  renderStormBanner();
+  if($('compareView').classList.contains('show'))renderCompare();
+  const now=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Denver'});
+  $('clock').textContent='Updated '+now+' MT';$('count').textContent=LOCATIONS.length+' locations';
 }
+function startClock(){const t=()=>{$('clock').textContent=new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',second:'2-digit',timeZone:'America/Denver'})+' MT';};t();setInterval(t,1000);}
 
-function startClock() {
-  const tick = () => {
-    $('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/Denver' }) + ' MT';
-  };
-  tick(); setInterval(tick, 1000);
+/* ================= VIEW SWITCHING + URL STATE ================= */
+function showView(v){const map=v==='map';
+  $('mapView').style.display=map?'block':'none';$('compareView').classList.toggle('show',!map);
+  $('tabMap').classList.toggle('active',map);$('tabCompare').classList.toggle('active',!map);
+  const p=new URLSearchParams(location.search); if(map)p.set('view','map');else p.set('view','compare');
+  history.replaceState(null,'',location.pathname+'?'+p);
+  if(map){setTimeout(()=>state.map.invalidateSize(),50);}else{renderCompare();}
 }
+$('tabMap').addEventListener('click',()=>showView('map'));
+$('tabCompare').addEventListener('click',()=>showView('compare'));
+$('kindSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;state.cmp.kind=b.dataset.k;document.querySelectorAll('#kindSeg button').forEach(x=>x.classList.toggle('active',x===b));renderCompare();});
+$('metricSeg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;state.cmp.metric=b.dataset.m;document.querySelectorAll('#metricSeg button').forEach(x=>x.classList.toggle('active',x===b));renderCompare();});
+window.addEventListener('popstate',restoreFromURL);
+function restoreFromURL(){const p=new URLSearchParams(location.search);const v=p.get('view');if(v==='compare')showView('compare');const ln=p.get('loc');if(ln){const loc=LOCATIONS.find(l=>l.name.toLowerCase()===ln.toLowerCase());if(loc){showView('map');selectLocation(loc,false);}}}
 
-/* ============================ INIT ============================ */
-function init() {
-  initMap();
-  startClock();
-  refreshAll();
-  selectResort(RESORTS[0], false);
-  setInterval(refreshAll, REFRESH_MS);
+/* ================= INIT ================= */
+function init(){
+  initMap();startClock();
+  const p=new URLSearchParams(location.search);
+  const startLoc=p.get('loc')?LOCATIONS.find(l=>l.name.toLowerCase()===p.get('loc').toLowerCase()):null;
+  if(p.get('view')==='compare')showView('compare');
+  refreshAll().then(()=>{ if(startLoc){showView('map');selectLocation(startLoc,false);} else selectLocation(LOCATIONS[0],false); });
+  setInterval(refreshAll,REFRESH_MS);
 }
 init();
 </script>
