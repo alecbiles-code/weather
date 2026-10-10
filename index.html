@@ -1,770 +1,597 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Colorado Snow Tracker</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Playfair+Display:ital,wght@0,700;1,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Powcast — Colorado Snow Forecast</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg-deep:#080c14;--bg-card:#0f1621;--bg-card-hover:#151e2d;--bg-surface:#0b1018;
-  --accent-blue:#38bdf8;--accent-cyan:#22d3ee;--accent-indigo:#818cf8;
-  --snow-white:#edf2fa;--text-primary:#dce4f0;--text-secondary:#7b8ba3;--text-muted:#3e4f66;
-  --border:rgba(56,189,248,0.07);--border-active:rgba(56,189,248,0.22);
-  --glow:rgba(56,189,248,0.12);--danger:#f87171;--success:#34d399;
-  --snow-gradient:linear-gradient(135deg,#38bdf8,#818cf8);
-  --card-radius:14px;--transition:0.3s cubic-bezier(0.4,0,0.2,1);
-}
-html{scroll-behavior:smooth}
-body{font-family:'Outfit',sans-serif;background:var(--bg-deep);color:var(--text-primary);min-height:100vh;overflow-x:hidden;-webkit-font-smoothing:antialiased}
-#snow-canvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.3}
-.ambient-bg{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;background:radial-gradient(ellipse 70% 50% at 15% 5%,rgba(56,189,248,.035) 0%,transparent 60%),radial-gradient(ellipse 50% 40% at 85% 85%,rgba(129,140,248,.025) 0%,transparent 50%)}
-.app-container{position:relative;z-index:1;max-width:1440px;margin:0 auto;padding:0 28px}
+  :root {
+    --bg: #0a0d12;
+    --panel: #12161d;
+    --panel2: #171c25;
+    --line: #232a36;
+    --line2: #2c3542;
+    --text: #e8edf3;
+    --muted: #8a95a4;
+    --dim: #5c6774;
+    --accent: #4cc2ff;
+    --accent-soft: rgba(76, 194, 255, 0.12);
+    --good: #3ddc97;
+    --warn: #ffb454;
+    --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--dim); }
 
-/* Header */
-.header{padding:32px 0 24px;display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;border-bottom:1px solid var(--border);animation:fadeSlideDown .7s ease-out}
-@keyframes fadeSlideDown{from{opacity:0;transform:translateY(-16px)}to{opacity:1;transform:translateY(0)}}
-.header-brand{display:flex;align-items:center;gap:14px}
-.logo-mark{width:44px;height:44px;background:var(--snow-gradient);border-radius:12px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px rgba(56,189,248,.18);flex-shrink:0}
-.logo-mark svg{width:22px;height:22px;fill:white}
-.header-title{font-family:'Playfair Display',serif;font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:700;letter-spacing:-.02em;background:linear-gradient(135deg,var(--snow-white),var(--accent-blue));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1.1}
-.header-sub{font-size:.72rem;color:var(--text-muted);font-weight:400;letter-spacing:.08em;text-transform:uppercase;margin-top:3px}
-.header-stats{display:flex;gap:24px;flex-wrap:wrap}
-.header-stat{text-align:right}
-.header-stat-value{font-family:'JetBrains Mono',monospace;font-size:1.3rem;font-weight:500;color:var(--accent-blue)}
-.header-stat-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);margin-top:2px}
+  .topbar {
+    height: 56px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; position: relative; z-index: 1200;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px rgba(76,194,255,.6);
+  }
+  .brand h1 { font-size: 16px; font-weight: 700; letter-spacing: .3px; margin: 0; }
+  .brand span { color: var(--muted); font-weight: 500; }
+  .top-right { display: flex; align-items: center; gap: 14px; font-size: 12px; color: var(--muted); }
+  .live { display: flex; align-items: center; gap: 6px; color: var(--good); font-weight: 600; font-size: 11px; letter-spacing: .5px; }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-/* Summary */
-.summary-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;padding:20px 0;animation:fadeIn .9s ease-out .15s both}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.summary-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--card-radius);padding:16px;display:flex;align-items:center;gap:12px;transition:var(--transition)}
-.summary-card:hover{border-color:var(--border-active);background:var(--bg-card-hover)}
-.summary-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.summary-icon svg{width:20px;height:20px}
-.summary-icon.blue{background:rgba(56,189,248,.08)}.summary-icon.blue svg{stroke:var(--accent-blue);fill:none}
-.summary-icon.indigo{background:rgba(129,140,248,.08)}.summary-icon.indigo svg{stroke:var(--accent-indigo);fill:none}
-.summary-icon.cyan{background:rgba(34,211,238,.08)}.summary-icon.cyan svg{stroke:var(--accent-cyan);fill:none}
-.summary-icon.green{background:rgba(52,211,153,.08)}.summary-icon.green svg{stroke:var(--success);fill:none}
-.summary-data-value{font-family:'JetBrains Mono',monospace;font-size:1.2rem;font-weight:600}
-.summary-data-label{font-size:.68rem;color:var(--text-secondary);margin-top:2px}
+  #map { position: fixed; top: 56px; bottom: 0; left: 0; right: 0; z-index: 1; background: var(--bg); }
+  .leaflet-container { background: var(--bg); font-family: inherit; }
+  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); border: 1px solid var(--line2); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  .leaflet-popup-tip { background: var(--panel); border: 1px solid var(--line2); }
+  .leaflet-popup-content { margin: 12px 14px; font-size: 12px; line-height: 1.5; }
+  .leaflet-popup-close-button { color: var(--muted) !important; }
+  .leaflet-bar a { background: var(--panel); color: var(--text); border-bottom: 1px solid var(--line); }
+  .leaflet-bar a:hover { background: var(--panel2); }
+  .leaflet-control-attribution { background: rgba(10,13,18,.8); color: var(--dim); font-size: 10px; }
+  .leaflet-control-attribution a { color: var(--dim); }
 
-/* Map — dark theme filter ONLY on base tiles pane, not radar */
-.map-section{padding:0 0 18px;animation:fadeIn .9s ease-out .2s both}
-.map-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden}
-.panel-header{padding:15px 20px 13px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
-.panel-title{font-size:.88rem;font-weight:600;display:flex;align-items:center;gap:8px}
-.panel-badge{font-family:'JetBrains Mono',monospace;font-size:.6rem;padding:3px 7px;border-radius:5px;background:rgba(56,189,248,.08);color:var(--accent-blue);font-weight:500}
-#map-container{height:440px;width:100%;background:var(--bg-deep);position:relative}
-.leaflet-container{background:#0a0e17}
-/* Only filter the base tile pane — radar pane stays full color */
-.leaflet-pane.base-tile-pane .leaflet-tile{filter:brightness(.7) contrast(1.1) saturate(.3) hue-rotate(180deg) invert(1)}
-.leaflet-control-zoom a{background:var(--bg-card)!important;color:var(--text-primary)!important;border-color:var(--border)!important}
-.leaflet-control-attribution{background:rgba(8,12,20,.85)!important;color:var(--text-muted)!important;font-size:10px!important}
-.leaflet-control-attribution a{color:var(--accent-blue)!important}
+  .resort-marker {
+    background: #1a2430; border: 1.5px solid #4cc2ff; color: #e8edf3;
+    border-radius: 16px; padding: 3px 9px; font-size: 11px; font-weight: 700;
+    white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,.5);
+    display: flex; align-items: center; gap: 4px; cursor: pointer;
+    transform: translate(-50%, -50%); transition: transform .12s ease, background .12s ease;
+  }
+  .resort-marker:hover { transform: translate(-50%,-50%) scale(1.08); background: #243341; z-index: 1000; }
+  .resort-marker.selected { background: #4cc2ff; color: #04121c; border-color: #fff; }
+  .resort-marker .val { font-variant-numeric: tabular-nums; }
+  .resort-marker.big { border-color: #ffd166; }
+  .resort-marker.big.selected { background: #ffd166; }
 
-/* Radar Controls */
-.radar-controls{display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--bg-surface);border-top:1px solid var(--border);flex-wrap:wrap}
-.radar-toggle{display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--text-secondary);cursor:pointer;user-select:none}
-.radar-toggle input[type="checkbox"]{accent-color:var(--accent-blue);width:14px;height:14px;cursor:pointer}
-.radar-slider-wrap{flex:1;min-width:160px;display:flex;align-items:center;gap:8px}
-.radar-slider{-webkit-appearance:none;width:100%;height:4px;border-radius:2px;background:var(--border);outline:none;cursor:pointer}
-.radar-slider::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent-blue);box-shadow:0 0 8px rgba(56,189,248,.3);cursor:pointer}
-.radar-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--accent-blue);border:none;cursor:pointer}
-.radar-time{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--accent-blue);min-width:120px;text-align:center}
-.radar-btn{background:var(--bg-card);border:1px solid var(--border);color:var(--text-secondary);border-radius:6px;padding:4px 10px;font-size:.7rem;cursor:pointer;font-family:'Outfit',sans-serif;transition:var(--transition)}
-.radar-btn:hover{border-color:var(--border-active);color:var(--text-primary)}
-.radar-btn.active{background:rgba(56,189,248,.1);border-color:var(--accent-blue);color:var(--accent-blue)}
-.radar-label-tag{font-size:.62rem;padding:2px 6px;border-radius:4px;font-weight:600;letter-spacing:.04em}
-.radar-label-tag.past{background:rgba(56,189,248,.1);color:var(--accent-blue)}
-.radar-label-tag.forecast{background:rgba(129,140,248,.1);color:var(--accent-indigo)}
+  .panel {
+    position: fixed; top: 56px; left: 0; bottom: 0; width: 396px;
+    background: var(--panel); border-right: 1px solid var(--line);
+    z-index: 1100; overflow-y: auto; overflow-x: hidden;
+    box-shadow: 4px 0 24px rgba(0,0,0,.35);
+  }
+  @media (max-width: 860px) {
+    .panel { width: 100%; max-width: 396px; left: auto; right: 0; border-right: none; border-left: 1px solid var(--line); }
+  }
+  .panel-inner { padding: 18px 18px 28px; }
 
-/* Popups */
-.leaflet-popup-content-wrapper{background:var(--bg-card)!important;color:var(--text-primary)!important;border:1px solid var(--border-active)!important;border-radius:12px!important;box-shadow:0 8px 32px rgba(0,0,0,.5)!important}
-.leaflet-popup-tip{background:var(--bg-card)!important}
-.leaflet-popup-close-button{color:var(--text-muted)!important}
-.leaflet-popup-close-button:hover{color:var(--text-primary)!important}
-.map-popup{min-width:180px}
-.map-popup-name{font-weight:700;font-size:.92rem;margin-bottom:6px;color:var(--snow-white)}
-.map-popup-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:.76rem}
-.map-popup-label{color:var(--text-secondary)}
-.map-popup-val{font-family:'JetBrains Mono',monospace;font-weight:500}
-.map-popup-val.blue{color:var(--accent-blue)}
-.map-popup-val.cyan{color:var(--accent-cyan)}
-.map-popup-divider{border:none;border-top:1px solid var(--border);margin:5px 0}
-.map-popup-btn{display:block;width:100%;margin-top:8px;padding:7px;border:1px solid var(--border-active);border-radius:8px;background:rgba(56,189,248,.06);color:var(--accent-blue);font-size:.7rem;font-weight:600;cursor:pointer;text-align:center;transition:var(--transition);font-family:'Outfit',sans-serif}
-.map-popup-btn:hover{background:rgba(56,189,248,.12)}
-.snow-marker{background:var(--bg-card);border:2px solid var(--accent-blue);border-radius:10px;padding:4px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--accent-blue);white-space:nowrap;box-shadow:0 2px 12px rgba(0,0,0,.5);text-align:center;line-height:1.3;transition:var(--transition)}
-.snow-marker:hover{transform:scale(1.08);border-color:var(--snow-white);z-index:9999!important}
-.snow-marker .sm-name{font-family:'Outfit',sans-serif;font-size:10px;font-weight:600;color:var(--text-secondary);display:block}
-.snow-marker .sm-temp{font-size:10px;color:var(--text-muted)}
-.snow-marker.has-snow{border-color:var(--accent-blue);background:rgba(15,22,33,.95)}
-.snow-marker.no-snow{border-color:var(--text-muted);color:var(--text-muted);background:rgba(15,22,33,.9)}
+  .panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .panel-head h2 { font-size: 20px; font-weight: 800; margin: 0; letter-spacing: -.3px; }
+  .region { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .elev { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .elev b { color: var(--text); font-weight: 600; }
 
-/* Powder Quality Tags */
-.powder-tag{display:inline-block;font-size:.58rem;font-weight:700;letter-spacing:.04em;padding:2px 5px;border-radius:4px;vertical-align:middle;margin-left:3px;text-transform:uppercase}
-.powder-tag.blower{background:rgba(139,92,246,.15);color:#a78bfa}
-.powder-tag.dry{background:rgba(56,189,248,.12);color:#38bdf8}
-.powder-tag.packed{background:rgba(251,191,36,.12);color:#fbbf24}
-.powder-tag.wet{background:rgba(248,113,113,.1);color:#f87171}
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
+  .stat {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+  }
+  .stat .label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+  .stat .val { font-size: 26px; font-weight: 800; margin-top: 5px; font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .stat .val small { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .stat .sub { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  .stat.accent { background: var(--accent-soft); border-color: rgba(76,194,255,.3); }
+  .stat.accent .val { color: var(--accent); }
+  .obs-tag { font-size: 9px; background: rgba(61,220,151,.15); color: var(--good); border: 1px solid rgba(61,220,151,.3); padding: 1px 5px; border-radius: 4px; font-weight: 700; letter-spacing: .4px; }
+  .fc-tag { font-size: 9px; background: rgba(76,194,255,.12); color: var(--accent); border: 1px solid rgba(76,194,255,.3); padding: 1px 5px; border-radius: 4px; font-weight: 700; letter-spacing: .4px; }
 
-/* Resort Selector */
-.resort-section{padding:16px 0 14px;animation:fadeIn .9s ease-out .3s both}
-.section-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.12em;color:var(--text-muted);margin-bottom:10px;font-weight:600}
-.resort-grid{display:flex;flex-wrap:wrap;gap:6px}
-.resort-chip{padding:8px 14px;border-radius:100px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:.78rem;font-weight:500;cursor:pointer;transition:var(--transition);white-space:nowrap;user-select:none}
-.resort-chip:hover{border-color:var(--border-active);color:var(--text-primary);background:var(--bg-card-hover)}
-.resort-chip.active{background:linear-gradient(135deg,rgba(56,189,248,.12),rgba(129,140,248,.08));border-color:var(--accent-blue);color:var(--snow-white);box-shadow:0 0 14px rgba(56,189,248,.12)}
-.resort-chip .chip-snow{font-family:'JetBrains Mono',monospace;font-size:.68rem;margin-left:4px;opacity:.65}
+  .sec-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .sec-title::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
-/* Content Grid */
-.content-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:4px 0 20px;animation:fadeIn .9s ease-out .35s both}
-@media(max-width:920px){.content-grid{grid-template-columns:1fr}}
+  .day-card {
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 8px; transition: border-color .15s ease;
+  }
+  .day-card:hover { border-color: var(--line2); }
+  .day-top { display: flex; justify-content: space-between; align-items: center; }
+  .day-top .d { font-weight: 700; font-size: 14px; }
+  .day-top .d small { color: var(--muted); font-weight: 500; margin-left: 6px; }
+  .wx-icon { width: 22px; height: 22px; }
+  .snow-pill { font-weight: 800; font-size: 16px; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .snow-pill.none { color: var(--dim); font-weight: 600; }
+  .day-meta { display: flex; gap: 14px; margin-top: 8px; font-size: 11.5px; color: var(--muted); }
+  .day-meta b { color: var(--text); font-weight: 600; }
+  .wind-flag { margin-top: 8px; font-size: 11px; color: var(--warn); display: flex; align-items: center; gap: 5px; font-weight: 600; }
+  .conf { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+  .conf .bar { flex: 1; height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .conf .bar i { display: block; height: 100%; border-radius: 2px; }
+  .conf span { font-size: 10px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
 
-/* Panel */
-.panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden}
-.panel .panel-header{padding:16px 20px 12px}
-.panel-body{padding:16px 20px 20px}
+  .chart-wrap { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .chart-svg { width: 100%; height: 190px; display: block; }
+  .chart-legend { display: flex; gap: 16px; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .chart-legend .k { display: flex; align-items: center; gap: 5px; }
+  .chart-legend .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
-/* Chart */
-.chart-container{position:relative;width:100%;height:250px}
-.chart-tooltip{position:absolute;background:var(--bg-surface);border:1px solid var(--border-active);border-radius:10px;padding:9px 13px;pointer-events:none;opacity:0;transition:opacity .2s ease;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.chart-tooltip.visible{opacity:1}
-.tooltip-date{font-size:.66rem;color:var(--text-muted);margin-bottom:2px}
-.tooltip-value{font-family:'JetBrains Mono',monospace;font-size:.88rem;font-weight:600;color:var(--accent-blue)}
-.tooltip-sub{font-size:.64rem;color:var(--text-muted);margin-top:1px}
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  tr:hover td { background: var(--panel2); }
+  td.s { color: var(--accent); font-weight: 700; }
+  td.t { font-weight: 600; }
 
-/* Bars */
-.accum-bar-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.025)}
-.accum-bar-row:last-child{border-bottom:none}
-.accum-day{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--text-muted);width:46px;flex-shrink:0}
-.accum-bar-track{flex:1;height:18px;background:rgba(56,189,248,.04);border-radius:5px;overflow:hidden}
-.accum-bar-fill{height:100%;border-radius:5px;background:var(--snow-gradient);transition:width .8s cubic-bezier(.4,0,.2,1);min-width:2px;position:relative}
-.accum-bar-fill::after{content:'';position:absolute;top:0;right:0;width:30%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.1));border-radius:0 5px 5px 0}
-.accum-amount{font-family:'JetBrains Mono',monospace;font-size:.76rem;font-weight:500;width:82px;text-align:right;flex-shrink:0;display:flex;align-items:center;justify-content:flex-end;gap:4px}
-.accum-amount.highlight{color:var(--accent-blue)}
+  .src-note { font-size: 10.5px; color: var(--dim); line-height: 1.5; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .src-note b { color: var(--muted); }
 
-/* Forecast */
-.forecast-scroll{overflow-x:auto;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--text-muted) transparent}
-.forecast-scroll::-webkit-scrollbar{height:4px}
-.forecast-scroll::-webkit-scrollbar-track{background:transparent}
-.forecast-scroll::-webkit-scrollbar-thumb{background:var(--text-muted);border-radius:4px}
-.forecast-row{display:flex;gap:8px;min-width:max-content}
-.forecast-card{width:82px;padding:12px 7px;border-radius:12px;background:var(--bg-surface);border:1px solid var(--border);text-align:center;flex-shrink:0;transition:var(--transition);cursor:default}
-.forecast-card:hover{border-color:var(--border-active);transform:translateY(-2px)}
-.forecast-card.has-snow{border-color:rgba(56,189,248,.18);background:linear-gradient(180deg,rgba(56,189,248,.05) 0%,var(--bg-surface) 100%)}
-.fc-day{font-size:.64rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:5px}
-.fc-date{font-family:'JetBrains Mono',monospace;font-size:.62rem;color:var(--text-muted);margin-bottom:7px;opacity:.6}
-.fc-icon{margin-bottom:5px;display:flex;justify-content:center}
-.fc-icon svg{width:20px;height:20px}
-.fc-snow{font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:600;color:var(--accent-blue);margin-bottom:2px}
-.fc-snow.none{color:var(--text-muted);font-weight:400;font-size:.76rem}
-.fc-temp{font-size:.64rem;color:var(--text-secondary)}.fc-temp span{color:var(--text-muted);margin-left:2px}
-.fc-powder{margin-top:4px}
+  .map-toggle {
+    position: fixed; top: 68px; right: 14px; z-index: 1150;
+    background: var(--panel); border: 1px solid var(--line2); border-radius: 8px;
+    color: var(--text); font-size: 11.5px; font-weight: 600; padding: 7px 12px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.4);
+  }
+  .map-toggle:hover { background: var(--panel2); }
+  .map-toggle .ind { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .map-toggle.on .ind { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
 
-/* Full Width */
-.full-width-section{padding:0 0 20px;animation:fadeIn .9s ease-out .4s both}
-.full-panel{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--card-radius);overflow:hidden}
+  .skel { background: linear-gradient(90deg, var(--panel2) 25%, var(--line) 50%, var(--panel2) 75%); background-size: 200% 100%; animation: sh 1.2s infinite; border-radius: 8px; }
+  @keyframes sh { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-/* Table */
-.resort-table{width:100%;border-collapse:collapse}
-.resort-table thead th{padding:12px 16px;text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
-.resort-table tbody tr{border-bottom:1px solid rgba(255,255,255,.02);cursor:pointer;transition:var(--transition)}
-.resort-table tbody tr:hover{background:var(--bg-card-hover)}
-.resort-table tbody tr.active-row{background:rgba(56,189,248,.03)}
-.resort-table td{padding:12px 16px;font-size:.8rem;white-space:nowrap}
-.resort-name-cell{display:flex;align-items:center;gap:9px}
-.resort-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.resort-dot.hot{background:var(--accent-blue);box-shadow:0 0 6px rgba(56,189,248,.35)}
-.resort-dot.warm{background:var(--accent-cyan)}
-.resort-dot.cool{background:var(--text-muted)}
-.mono{font-family:'JetBrains Mono',monospace}
-.text-blue{color:var(--accent-blue)}.text-cyan{color:var(--accent-cyan)}.text-muted{color:var(--text-muted)}.text-secondary{color:var(--text-secondary)}.font-medium{font-weight:500}
-.mini-bar{width:54px;height:5px;background:rgba(255,255,255,.04);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:6px}
-.mini-bar-fill{height:100%;border-radius:3px;background:var(--snow-gradient)}
-
-/* Loading & Error */
-.loading-container{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:45px 20px;gap:12px}
-.loading-spinner{width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent-blue);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loading-text{font-size:.78rem;color:var(--text-muted)}
-.error-banner{background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.15);border-radius:10px;padding:11px 16px;margin:12px 0;font-size:.78rem;color:var(--danger);display:none;align-items:center;gap:8px}
-.error-banner.visible{display:flex}
-
-/* SLR Note */
-.slr-note{font-size:.65rem;color:var(--text-muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border);line-height:1.5}
-.slr-note strong{color:var(--text-secondary);font-weight:500}
-
-/* Footer */
-.footer{padding:24px 0;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;animation:fadeIn .9s ease-out .5s both}
-.footer-text{font-size:.68rem;color:var(--text-muted)}.footer-text a{color:var(--accent-blue);text-decoration:none}.footer-text a:hover{text-decoration:underline}
-
-/* Responsive */
-@media(max-width:768px){.app-container{padding:0 14px}.header{padding:20px 0 16px}.header-stats{display:none}.panel-body{padding:12px}.resort-table td,.resort-table thead th{padding:8px 10px;font-size:.74rem}.chart-container{height:200px}.forecast-card{width:72px;padding:10px 5px}#map-container{height:300px}.radar-controls{padding:10px 12px}}
-@media(max-width:480px){.summary-bar{grid-template-columns:1fr 1fr}.summary-card{padding:12px}.radar-slider-wrap{min-width:120px}}
-.stagger > *{animation:fadeSlideUp .45s ease-out both}
-.stagger > *:nth-child(1){animation-delay:0s}.stagger > *:nth-child(2){animation-delay:.04s}.stagger > *:nth-child(3){animation-delay:.08s}.stagger > *:nth-child(4){animation-delay:.12s}.stagger > *:nth-child(5){animation-delay:.16s}.stagger > *:nth-child(6){animation-delay:.2s}.stagger > *:nth-child(7){animation-delay:.24s}
-@keyframes fadeSlideUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  footer { padding: 14px 20px; font-size: 10.5px; color: var(--dim); border-top: 1px solid var(--line); line-height: 1.6; background: var(--panel); }
 </style>
 </head>
 <body>
-<canvas id="snow-canvas"></canvas>
-<div class="ambient-bg"></div>
-<div class="app-container">
 
-  <header class="header">
-    <div>
-      <div class="header-brand">
-        <div class="logo-mark"><svg viewBox="0 0 24 24"><path d="M12 2L9.5 7.5H5L8 11L6.5 16.5L12 13.5L17.5 16.5L16 11L19 7.5H14.5L12 2Z" fill="white" opacity=".85"/><circle cx="12" cy="11" r="1.5" fill="white"/></svg></div>
-        <div>
-          <div class="header-title">Colorado Snow Tracker</div>
-          <div class="header-sub">Live Accumulation &amp; 14-Day Forecast &middot; SWE-Corrected</div>
-        </div>
-      </div>
-    </div>
-    <div class="header-stats" id="header-stats"></div>
-  </header>
-
-  <div class="error-banner" id="error-banner"><span>!</span> <span id="error-msg"></span></div>
-  <div class="summary-bar" id="summary-bar"></div>
-
-  <!-- Map + Radar -->
-  <section class="map-section">
-    <div class="map-panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2"><circle cx="12" cy="10" r="3"/><path d="M12 21.7C17.3 17 20 13 20 10a8 8 0 1 0-16 0c0 3 2.7 7 8 11.7Z"/></svg>
-          <span>Resort Map</span>
-          <span class="panel-badge">LIVE CONDITIONS</span>
-        </div>
-        <div class="panel-badge" style="background:rgba(129,140,248,.08);color:var(--accent-indigo)">WEATHER RADAR</div>
-      </div>
-      <div id="map-container"></div>
-      <div class="radar-controls" id="radar-controls">
-        <label class="radar-toggle"><input type="checkbox" id="radar-toggle-cb"> Radar</label>
-        <button class="radar-btn" id="radar-play-btn" title="Play/Pause">Play</button>
-        <div class="radar-slider-wrap">
-          <input type="range" class="radar-slider" id="radar-slider" min="0" max="1" value="0" step="1" disabled>
-        </div>
-        <span class="radar-time" id="radar-time">--</span>
-        <span class="radar-label-tag" id="radar-tag" style="display:none">--</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- Resort Chips -->
-  <section class="resort-section">
-    <div class="section-label">Select Resort</div>
-    <div class="resort-grid stagger" id="resort-grid"></div>
-  </section>
-
-  <!-- Content Grid -->
-  <div class="content-grid" id="main-content">
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2"><path d="M3 22V8l9-6 9 6v14"/><path d="M7 22V12h10v10"/></svg>
-          <span>7-Day Cumulative Snowfall</span>
-          <span class="panel-badge" id="accum-total"></span>
-        </div>
-      </div>
-      <div class="panel-body">
-        <div class="chart-container" id="accum-chart"><div class="loading-container"><div class="loading-spinner"></div><div class="loading-text">Loading snow data...</div></div></div>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="3" width="4" height="18" rx="1"/></svg>
-          <span>Daily Breakdown</span>
-          <span class="panel-badge">7 DAYS</span>
-        </div>
-      </div>
-      <div class="panel-body" id="accum-bars"><div class="loading-container"><div class="loading-spinner"></div><div class="loading-text">Loading...</div></div></div>
-    </div>
+<header class="topbar">
+  <div class="brand">
+    <div class="dot"></div>
+    <h1>POWCAST <span>· Colorado</span></h1>
   </div>
+  <div class="top-right">
+    <div class="live"><i></i>LIVE</div>
+    <div id="clock">—</div>
+    <div>20 resorts</div>
+  </div>
+</header>
 
-  <!-- Forecast -->
-  <section class="full-width-section">
-    <div class="full-panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-indigo)" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-          <span>14-Day Snow Forecast</span>
-          <span class="panel-badge" id="forecast-total"></span>
-        </div>
-      </div>
-      <div class="panel-body">
-        <div class="forecast-scroll" id="forecast-scroll"><div class="loading-container"><div class="loading-spinner"></div><div class="loading-text">Loading forecast...</div></div></div>
-      </div>
-    </div>
-  </section>
+<div id="map"></div>
+<button id="radarBtn" class="map-toggle"><span class="ind"></span>Precip radar</button>
 
-  <!-- Table -->
-  <section class="full-width-section">
-    <div class="full-panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-          <span>All Resort Overview</span>
-          <span class="panel-badge" id="resort-count"></span>
-        </div>
-      </div>
-      <div style="overflow-x:auto">
-        <table class="resort-table"><thead><tr><th>Resort</th><th>Elev</th><th>7-Day</th><th>14-Day Fcst</th><th>Next Snow</th><th>Snow Type</th><th>Current</th></tr></thead>
-        <tbody id="resort-tbody"><tr><td colspan="7"><div class="loading-container"><div class="loading-spinner"></div><div class="loading-text">Fetching resort data...</div></div></td></tr></tbody></table>
-      </div>
-      <div style="padding:8px 20px 14px">
-        <div class="slr-note">
-          <strong>How snow is estimated:</strong> Open-Meteo reports modeled snowfall which we convert using a standard Snow-to-Liquid Ratio (SLR):
-          cold/dry (&lt;15°F avg) 12:1, typical (15-25°F) 10:1, warm (&gt;25°F) 8:1.
-          Powder quality is based on storm temperature. Actual resort totals may vary from these model estimates.
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <footer class="footer">
-    <div class="footer-text">
-      Weather data via <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo API</a>
-      (NOAA HRRR + GFS) &middot; Radar via <a href="https://www.rainviewer.com/" target="_blank" rel="noopener">RainViewer</a>
-    </div>
-    <div class="footer-text">Built for Colorado backcountry &amp; resort riders &middot; <span id="update-time"></span></div>
-  </footer>
-
-</div>
+<aside class="panel">
+  <div class="panel-inner" id="panelContent"></div>
+</aside>
 
 <script>
-// ═══════════════════════════════════════════════════════
-// Colorado Snow Tracker v4
-// FIXED: SLR range tightened to 6-12 (centered on 10:1)
-// FIXED: Radar uses colored tiles, persists on zoom
-// ADDED: Powder quality indicator per day
-// ═══════════════════════════════════════════════════════
+/* ============================ CONFIG ============================ */
+const REFRESH_MS = 10 * 60 * 1000;
+const HIST_DAYS = 7, FC_DAYS = 14;
 
 const RESORTS = [
-  { name: "Vail",             lat: 39.6403, lon: -106.3742, elev: 11570 },
-  { name: "Aspen Snowmass",   lat: 39.2084, lon: -106.9490, elev: 12510 },
-  { name: "Breckenridge",     lat: 39.4817, lon: -106.0384, elev: 12998 },
-  { name: "Winter Park",      lat: 39.8841, lon: -105.7625, elev: 12060 },
-  { name: "Keystone",         lat: 39.6069, lon: -105.9497, elev: 12408 },
-  { name: "Copper Mountain",  lat: 39.5022, lon: -106.1497, elev: 12313 },
-  { name: "Steamboat",        lat: 40.4572, lon: -106.8045, elev: 10568 },
-  { name: "Telluride",        lat: 37.9375, lon: -107.8123, elev: 13150 },
-  { name: "Crested Butte",    lat: 38.8986, lon: -106.9653, elev: 12162 },
-  { name: "Arapahoe Basin",   lat: 39.6426, lon: -105.8718, elev: 13050 },
-  { name: "Loveland",         lat: 39.6800, lon: -105.8978, elev: 13010 },
-  { name: "Monarch",          lat: 38.5122, lon: -106.3322, elev: 11952 },
-  { name: "Wolf Creek",       lat: 37.4733, lon: -106.7936, elev: 11904 },
-  { name: "Purgatory",        lat: 37.6308, lon: -107.8142, elev: 10822 },
-  { name: "Eldora",           lat: 39.9372, lon: -105.5828, elev: 10800 },
+  {name:'Vail',lat:39.6403,lon:-106.3742,elev:12408,region:'Central',snotel:'842:CO:SNTL'},
+  {name:'Beaver Creek',lat:39.6042,lon:-106.5165,elev:11440,region:'Central',snotel:'1041:CO:SNTL'},
+  {name:'Breckenridge',lat:39.4817,lon:-106.0384,elev:12998,region:'Central',snotel:'415:CO:SNTL'},
+  {name:'Keystone',lat:39.6069,lon:-105.9439,elev:12408,region:'Central',snotel:'505:CO:SNTL'},
+  {name:'Copper Mountain',lat:39.5022,lon:-106.1511,elev:12313,region:'Central',snotel:'415:CO:SNTL'},
+  {name:'Arapahoe Basin',lat:39.6425,lon:-105.8717,elev:13050,region:'Central',snotel:'505:CO:SNTL'},
+  {name:'Winter Park',lat:39.8868,lon:-105.7625,elev:12060,region:'Front Range',snotel:'1186:CO:SNTL'},
+  {name:'Steamboat',lat:40.4572,lon:-106.8045,elev:10568,region:'Northern',snotel:'457:CO:SNTL'},
+  {name:'Aspen Snowmass',lat:39.2084,lon:-106.9490,elev:12510,region:'Western',snotel:'669:CO:SNTL'},
+  {name:'Telluride',lat:37.9375,lon:-107.8123,elev:13150,region:'Southern',snotel:'1344:CO:SNTL'},
+  {name:'Crested Butte',lat:38.8991,lon:-106.9659,elev:12162,region:'Western',snotel:'380:CO:SNTL'},
+  {name:'Loveland',lat:39.6800,lon:-105.8979,elev:13010,region:'Central',snotel:'602:CO:SNTL'},
+  {name:'Eldora',lat:39.9372,lon:-105.5827,elev:10600,region:'Front Range',snotel:'564:CO:SNTL'},
+  {name:'Monarch Mountain',lat:38.5122,lon:-106.3320,elev:11961,region:'Central',snotel:'701:CO:SNTL'},
+  {name:'Purgatory',lat:37.6303,lon:-107.8140,elev:10822,region:'Southern',snotel:'387:CO:SNTL'},
+  {name:'Wolf Creek',lat:37.4722,lon:-106.7930,elev:11904,region:'Southern',snotel:'874:CO:SNTL'},
+  {name:'Silverton Mountain',lat:37.8846,lon:-107.6659,elev:13487,region:'Southern',snotel:'713:CO:SNTL'},
+  {name:'Powderhorn',lat:39.0694,lon:-108.1507,elev:9850,region:'Western',snotel:'622:CO:SNTL'},
+  {name:'Sunlight Mountain',lat:39.3998,lon:-107.3387,elev:9895,region:'Western',snotel:'618:CO:SNTL'},
+  {name:'Ski Cooper',lat:39.3603,lon:-106.3014,elev:11700,region:'Central',snotel:'485:CO:SNTL'},
 ];
 
-let allData = {};
-let selectedResort = "Vail";
-let leafletMap = null;
+const state = { map:null, radar:null, radarOn:false, markers:{}, selected:null, data:{}, snotelMeta:{} };
 
-// ═══════════════════════════════════════════════════════
-// Snow-to-Liquid Ratio (SLR) — CORRECTED v4
-// Tightened range: 6-12 centered on ~10:1
-// Validated against OpenSnow for Steamboat & Vail
-// ═══════════════════════════════════════════════════════
-
-function getSLR(avgTempF) {
-  if (avgTempF < 10)  return 12;  // Very cold dry powder
-  if (avgTempF < 20)  return 11;  // Cold
-  if (avgTempF < 28)  return 10;  // Typical Colorado
-  if (avgTempF < 32)  return 8;   // Near freezing, wetter
-  return 6;                        // Wet/heavy
-}
-
-// Powder quality descriptor
-function getPowderQuality(avgTempF) {
-  if (avgTempF < 10)  return { label: 'Blower', cls: 'blower', desc: 'Ultra-light champagne powder' };
-  if (avgTempF < 20)  return { label: 'Dry Pow', cls: 'dry', desc: 'Classic dry Colorado powder' };
-  if (avgTempF < 28)  return { label: 'Packed', cls: 'packed', desc: 'Moderate density, packable' };
-  if (avgTempF < 32)  return { label: 'Dense', cls: 'packed', desc: 'Dense, good base-building snow' };
-  return { label: 'Wet', cls: 'wet', desc: 'Heavy wet snow / Sierra cement' };
-}
-
-function powderTagHTML(avgTempF) {
-  const pq = getPowderQuality(avgTempF);
-  return `<span class="powder-tag ${pq.cls}" title="${pq.desc}">${pq.label}</span>`;
-}
-
-// Convert snowfall_sum (cm) to actual snow (inches) using SLR
-function snowToInches(cm, avgTempF) {
-  if (cm <= 0) return 0;
-  const slr = getSLR(avgTempF);
-  return (cm * slr) / 2.54;
-}
-
-// ── Helpers ──
-const dayLabel = ds => new Date(ds+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
-const shortDate = ds => new Date(ds+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
-const fullDate = ds => new Date(ds+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
-
-// ── SVG Weather Icons ──
-function weatherIconSVG(code, size=20) {
-  const s = size;
-  if (code === 0) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/></svg>`;
-  if (code <= 3) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.8"><circle cx="9" cy="8" r="3" stroke="#facc15"/><path d="M8 15.5A4.5 4.5 0 1 1 16.5 13H18a3 3 0 0 1 0 6H8Z"/></svg>`;
-  if (code <= 49) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M6 19a4 4 0 0 1-.87-7.9A5.5 5.5 0 0 1 16.13 10 3 3 0 1 1 18 16H6Z"/></svg>`;
-  if (code <= 59) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2"><path d="M6 17a4 4 0 0 1-.87-7.9A5.5 5.5 0 0 1 16.13 8 3 3 0 1 1 18 14H6Z"/><path d="M10 19v2m4-2v2" stroke-linecap="round"/></svg>`;
-  if ((code >= 60 && code <= 79) || (code >= 85 && code <= 86)) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="1.8"><path d="M6 16a4 4 0 0 1-.87-7.9A5.5 5.5 0 0 1 16.13 7 3 3 0 1 1 18 13H6Z"/><path d="M10 18l-1 3m3-3v3m3-3l1 3" stroke-linecap="round" stroke-width="1.5"/></svg>`;
-  if (code <= 82) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M6 17a4 4 0 0 1-.87-7.9A5.5 5.5 0 0 1 16.13 8 3 3 0 1 1 18 14H6Z"/><path d="M8 19v3m4-3v3m4-3v3" stroke-linecap="round"/></svg>`;
-  if (code <= 99) return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M6 16a4 4 0 0 1-.87-7.9A5.5 5.5 0 0 1 16.13 7 3 3 0 1 1 18 13H6Z" stroke="#64748b"/><path d="M13 14l-2 4h3l-2 4" stroke-linecap="round"/></svg>`;
-  return `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="1.8"><path d="M6 16a4 4 0 0 1-.87-7.9A5.5 5.5 0 0 1 16.13 7 3 3 0 1 1 18 13H6Z"/><path d="M10 18l-1 3m3-3v3m3-3l1 3" stroke-linecap="round" stroke-width="1.5"/></svg>`;
-}
-
-// ═══════════════════════════════════════════════════════
-// Data Fetching
-// ═══════════════════════════════════════════════════════
-
-async function fetchResortData(resort) {
-  const url = `https://api.open-meteo.com/v1/forecast?`
-    + `latitude=${resort.lat}&longitude=${resort.lon}`
-    + `&daily=snowfall_sum,temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code`
-    + `&current=temperature_2m,weather_code,wind_speed_10m,snowfall,snow_depth`
-    + `&past_days=7&forecast_days=14`
-    + `&timezone=America/Denver&temperature_unit=fahrenheit&wind_speed_unit=mph`;
-
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  const daily = json.daily;
-  const today = new Date().toISOString().split('T')[0];
-
-  const allDays = (daily.time || []).map((d, i) => {
-    const high = Math.round(daily.temperature_2m_max?.[i] ?? 20);
-    const low = Math.round(daily.temperature_2m_min?.[i] ?? 10);
-    const avgTemp = (high + low) / 2;
-    const raw_cm = daily.snowfall_sum?.[i] || 0;
-    const snow_in = snowToInches(raw_cm, avgTemp);
-    const pq = getPowderQuality(avgTemp);
-    return {
-      date: d, raw_cm, snow_in, high, low, avgTemp,
-      slr: getSLR(avgTemp),
-      powder: pq,
-      precip_prob: daily.precipitation_probability_max?.[i] || 0,
-      code: daily.weather_code?.[i] || 0,
-    };
-  });
-
-  const todayIdx = allDays.findIndex(d => d.date >= today);
-  const history = todayIdx > 0 ? allDays.slice(0, todayIdx) : allDays.slice(0, 7);
-  const forecast = todayIdx >= 0 ? allDays.slice(todayIdx) : allDays.slice(7);
-
-  const hist7total = history.reduce((s, d) => s + d.snow_in, 0);
-  const fore14total = forecast.reduce((s, d) => s + d.snow_in, 0);
-  const nextSnowDay = forecast.find(d => d.snow_in >= 0.5);
-
-  // Determine dominant powder quality for the forecast snow days
-  const snowDays = forecast.filter(d => d.snow_in >= 0.5);
-  const avgSnowTemp = snowDays.length ? snowDays.reduce((s,d)=>s+d.avgTemp,0)/snowDays.length : 20;
-  const dominantPowder = getPowderQuality(avgSnowTemp);
-
-  const cur = json.current || {};
-
-  return {
-    name: resort.name, lat: resort.lat, lon: resort.lon, elev: resort.elev,
-    history, forecast, hist7total, fore14total,
-    dominantPowder,
-    nextSnowDay: nextSnowDay ? shortDate(nextSnowDay.date) : '--',
-    current: {
-      temp: Math.round(cur.temperature_2m ?? 0),
-      code: cur.weather_code ?? 0,
-      wind: Math.round(cur.wind_speed_10m ?? 0),
-      snow_depth_in: (cur.snow_depth ?? 0) / 2.54,
-    }
-  };
-}
-
-async function fetchAllData() {
-  const results = await Promise.allSettled(RESORTS.map(r => fetchResortData(r)));
-  let fail = 0;
-  results.forEach(r => { if (r.status === 'fulfilled') allData[r.value.name] = r.value; else fail++; });
-  if (fail > 0 && fail < RESORTS.length) showError(`Data unavailable for ${fail} resort(s).`);
-  else if (fail === RESORTS.length) showError('Unable to fetch weather data.');
-}
-
-function showError(msg) { document.getElementById('error-msg').textContent = msg; document.getElementById('error-banner').classList.add('visible'); }
-
-// ═══════════════════════════════════════════════════════
-// Rendering
-// ═══════════════════════════════════════════════════════
-
-function renderSummary() {
-  const data = Object.values(allData); if (!data.length) return;
-  const max7 = data.reduce((a,b)=>a.hist7total>b.hist7total?a:b);
-  const maxF = data.reduce((a,b)=>a.fore14total>b.fore14total?a:b);
-  const avg7 = data.reduce((s,d)=>s+d.hist7total,0)/data.length;
-  const snowResorts = data.filter(d=>d.fore14total>1).length;
-
-  const ic = (d) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${d}</svg>`;
-  document.getElementById('summary-bar').innerHTML = `
-    <div class="summary-card"><div class="summary-icon blue">${ic('<path d="M8 21l4-10 4 10"/><path d="M2 21l5-12 3 6"/><path d="M15 9l5 12"/>')}</div><div><div class="summary-data-value">${max7.hist7total.toFixed(1)}"</div><div class="summary-data-label">Most snow 7d -- ${max7.name}</div></div></div>
-    <div class="summary-card"><div class="summary-icon indigo">${ic('<path d="M3 3v18h18"/><path d="M7 16l4-6 4 4 5-8"/>')}</div><div><div class="summary-data-value">${avg7.toFixed(1)}"</div><div class="summary-data-label">Avg across all resorts</div></div></div>
-    <div class="summary-card"><div class="summary-icon cyan">${ic('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>')}</div><div><div class="summary-data-value">${maxF.fore14total.toFixed(1)}"</div><div class="summary-data-label">Best 14d forecast -- ${maxF.name}</div></div></div>
-    <div class="summary-card"><div class="summary-icon green">${ic('<path d="M5.5 16.5l13-9"/><circle cx="17" cy="4" r="2"/><path d="M3 21l6-6"/><path d="M15 15l6 6"/>')}</div><div><div class="summary-data-value">${snowResorts}</div><div class="summary-data-label">Resorts with snow in forecast</div></div></div>`;
-
-  document.getElementById('header-stats').innerHTML = `
-    <div class="header-stat"><div class="header-stat-value">${data.length}</div><div class="header-stat-label">Resorts</div></div>
-    <div class="header-stat"><div class="header-stat-value">${new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div><div class="header-stat-label">Updated</div></div>`;
-}
-
-// ═══════════════════════════════════════════════════════
-// Map + RainViewer Radar (FIXED v4)
-// ═══════════════════════════════════════════════════════
-
-let radarLayers = [], radarFrames = [], radarApiData = null, radarPosition = 0, radarPlaying = false, radarInterval = null, radarLastPast = 0;
-
-function renderMap() {
-  const data = Object.values(allData); if (!data.length) return;
-  if (leafletMap) { leafletMap.remove(); leafletMap = null; }
-
-  leafletMap = L.map('map-container', { center: [39.1, -106.3], zoom: 7, zoomControl: true });
-
-  // Create custom pane for base tiles so we can apply dark filter ONLY to it
-  leafletMap.createPane('baseTilePane');
-  leafletMap.getPane('baseTilePane').style.zIndex = 200;
-  leafletMap.getPane('baseTilePane').classList.add('base-tile-pane');
-
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OSM',
-    maxZoom: 18,
-    pane: 'baseTilePane'
-  }).addTo(leafletMap);
-
-  data.forEach(d => {
-    const hs = d.hist7total >= 1;
-    const html = `<div class="snow-marker ${hs?'has-snow':'no-snow'}"><span class="sm-name">${d.name}</span>${d.hist7total>=0.5?d.hist7total.toFixed(0)+'"':'--'}<span class="sm-temp">${d.current.temp}°F</span></div>`;
-    const icon = L.divIcon({ html, className: '', iconSize: null, iconAnchor: [40, 20] });
-    const marker = L.marker([d.lat, d.lon], { icon }).addTo(leafletMap);
-    const pqTag = d.dominantPowder ? `<span class="powder-tag ${d.dominantPowder.cls}">${d.dominantPowder.label}</span>` : '';
-    marker.bindPopup(`<div class="map-popup">
-      <div class="map-popup-name">${d.name}</div>
-      <div class="map-popup-row"><span class="map-popup-label">Elevation</span><span class="map-popup-val">${d.elev.toLocaleString()}'</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Temp</span><span class="map-popup-val">${d.current.temp}°F</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Wind</span><span class="map-popup-val">${d.current.wind} mph</span></div>
-      <hr class="map-popup-divider">
-      <div class="map-popup-row"><span class="map-popup-label">Past 7 Days</span><span class="map-popup-val blue">${d.hist7total.toFixed(1)}"</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Next 14 Days</span><span class="map-popup-val cyan">${d.fore14total.toFixed(1)}"</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Snow Type</span><span class="map-popup-val">${pqTag}</span></div>
-      <div class="map-popup-row"><span class="map-popup-label">Next Snow</span><span class="map-popup-val">${d.nextSnowDay}</span></div>
-      <button class="map-popup-btn" onclick="selectResort('${d.name}')">View Details</button>
-    </div>`, { maxWidth: 220 });
-  });
-
-  leafletMap.fitBounds(data.map(d => [d.lat, d.lon]), { padding: [30, 30] });
-  initRadar();
-}
-
-// ── RainViewer Radar (FIXED v4: colored, persists on zoom) ──
-async function initRadar() {
-  try {
-    const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-    radarApiData = await res.json();
-    const past = radarApiData.radar?.past || [];
-    const nowcast = radarApiData.radar?.nowcast || [];
-    radarFrames = [...past, ...nowcast];
-    radarLastPast = past.length - 1;
-    if (!radarFrames.length) return;
-    const slider = document.getElementById('radar-slider');
-    slider.max = radarFrames.length - 1;
-    slider.value = radarLastPast;
-    slider.disabled = false;
-    radarPosition = radarLastPast;
-    slider.addEventListener('input', () => { radarPosition = +slider.value; showRadarFrame(radarPosition); });
-    document.getElementById('radar-toggle-cb').addEventListener('change', function() {
-      if (this.checked) showRadarFrame(radarPosition);
-      else { radarLayers.forEach(l => leafletMap.removeLayer(l)); radarLayers = []; document.getElementById('radar-time').textContent = '--'; document.getElementById('radar-tag').style.display = 'none'; stopRadar(); }
-    });
-    document.getElementById('radar-play-btn').addEventListener('click', toggleRadarPlay);
-  } catch (e) { console.warn('Radar unavailable:', e); }
-}
-
-function showRadarFrame(idx) {
-  if (!leafletMap || !radarApiData || !radarFrames.length) return;
-  if (!document.getElementById('radar-toggle-cb').checked) return;
-  radarLayers.forEach(l => leafletMap.removeLayer(l));
-  radarLayers = [];
-  const frame = radarFrames[idx];
-  if (!frame) return;
-
-  // Color scheme 2 = standard NEXRAD rainbow, smooth=1, snow_colors=1
-  // Use 256 tile size, maxNativeZoom=10 (RainViewer free limit), maxZoom=18 so tiles persist on zoom
-  const layer = L.tileLayer(
-    radarApiData.host + frame.path + '/256/{z}/{x}/{y}/2/1_1.png',
-    { opacity: 0.6, zIndex: 450, maxNativeZoom: 10, maxZoom: 18, tileSize: 256 }
-  );
-  layer.addTo(leafletMap);
-  radarLayers.push(layer);
-
-  const time = new Date(frame.time * 1000);
-  document.getElementById('radar-time').textContent = time.toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit', timeZone:'America/Denver' }) + ' MT';
-  const tag = document.getElementById('radar-tag');
-  if (idx <= radarLastPast) { tag.textContent = 'PAST'; tag.className = 'radar-label-tag past'; }
-  else { tag.textContent = 'NOWCAST'; tag.className = 'radar-label-tag forecast'; }
-  tag.style.display = '';
-  document.getElementById('radar-slider').value = idx;
-}
-
-function toggleRadarPlay() { if (radarPlaying) stopRadar(); else startRadar(); }
-function startRadar() {
-  if (!document.getElementById('radar-toggle-cb').checked) document.getElementById('radar-toggle-cb').checked = true;
-  radarPlaying = true;
-  document.getElementById('radar-play-btn').textContent = 'Pause';
-  document.getElementById('radar-play-btn').classList.add('active');
-  radarInterval = setInterval(() => { radarPosition = (radarPosition + 1) % radarFrames.length; showRadarFrame(radarPosition); }, 500);
-}
-function stopRadar() {
-  radarPlaying = false;
-  document.getElementById('radar-play-btn').textContent = 'Play';
-  document.getElementById('radar-play-btn').classList.remove('active');
-  if (radarInterval) { clearInterval(radarInterval); radarInterval = null; }
-}
-
-window.selectResort = function(name) {
-  selectedResort = name;
-  renderResortChips(); renderAccumChart(); renderAccumBars(); renderForecast(); renderTable();
-  if (leafletMap) leafletMap.closePopup();
-  document.getElementById('main-content').scrollIntoView({ behavior: 'smooth' });
+/* ============================ ICONS (inline SVG, no emoji) ============================ */
+const IC = {
+  snow:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#4cc2ff" stroke-width="1.8" stroke-linecap="round"><path d="M12 2v20M4 6l16 12M20 6L4 18M12 2l-2 3m2-3 2 3M12 22l-2-3m2 3 2-3M4 6l3.5.5M4 6 5 9.5M20 18l-3.5-.5m3.5.5-1-3.5M20 6l-1 3.5M20 6l-3.5.5M4 18l1-3.5M4 18l3.5.5"/></svg>',
+  sun:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#ffd166" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  cloud:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#9aa7b5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 18a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.5 1.5A4 4 0 0 0 6.5 18h11z"/></svg>',
+  part:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="9" r="3.5" stroke="#ffd166"/><path d="M9 2v1.5M9 14.5V16M2 9h1.5M14.5 9H16M4 4l1 1M13 13l1 1" stroke="#ffd166"/><path d="M17 19a3.5 3.5 0 0 0 0-7 4.5 4.5 0 0 0-4.3 3.1A3 3 0 0 0 13 19h4z" stroke="#9aa7b5"/></svg>',
+  rain:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#5aa9e6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 13a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.5 1.5A4 4 0 0 0 6.5 13h11z"/><path d="M8 17v3M12 16v4M16 17v3"/></svg>',
+  storm:'<svg class="wx-icon" viewBox="0 0 24 24" fill="none" stroke="#c792ea" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 11a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.5 1.5A4 4 0 0 0 6.5 11h11z"/><path d="M13 12l-3 5h4l-3 5"/></svg>',
+  wind:'<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2M17.7 7.7A2.5 2.5 0 1 1 19.5 12H2"/></svg>',
+  alert:'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
 };
 
-// ── Chips ──
-function renderResortChips() {
-  const grid = document.getElementById('resort-grid');
-  const sorted = Object.values(allData).sort((a,b) => b.hist7total - a.hist7total);
-  grid.innerHTML = sorted.map(d => `<div class="resort-chip ${d.name===selectedResort?'active':''}" data-resort="${d.name}">${d.name}<span class="chip-snow">${d.hist7total.toFixed(0)}"</span></div>`).join('');
-  grid.querySelectorAll('.resort-chip').forEach(c => c.addEventListener('click', () => { selectedResort=c.dataset.resort; renderResortChips();renderAccumChart();renderAccumBars();renderForecast();renderTable(); }));
+function wxIcon(code) {
+  if ([71,73,75,77,85,86].includes(code)) return IC.snow;
+  if ([51,53,55,61,63,65,80,81,82,56,57,66,67].includes(code)) return IC.rain;
+  if ([95,96,99].includes(code)) return IC.storm;
+  if (code === 0) return IC.sun;
+  if ([1,2].includes(code)) return IC.part;
+  return IC.cloud;
 }
 
-// ── Chart ──
-function renderAccumChart() {
-  const data = allData[selectedResort]; if (!data) return;
-  const container = document.getElementById('accum-chart');
-  const days = data.history;
-  document.getElementById('accum-total').textContent = `${data.hist7total.toFixed(1)}" TOTAL`;
-  if (!days.length) { container.innerHTML = '<div class="loading-text" style="padding:40px;text-align:center">No data</div>'; return; }
+/* ============================ HELPERS ============================ */
+const $ = id => document.getElementById(id);
+const r1 = v => Math.round(v * 10) / 10;
+const r0 = v => Math.round(v);
 
-  let cumulative = [], runSum = 0;
-  days.forEach(d => { runSum += d.snow_in; cumulative.push(runSum); });
-  const maxCum = Math.max(runSum, 1);
+/* Local (America/Denver) date as YYYY-MM-DD — fixes the UTC-midnight bug */
+function localToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Denver', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date());
+  const p = {}; parts.forEach(x => p[x.type] = x.value);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function shiftDate(iso, days) {
+  const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+function niceDay(iso, today) {
+  const d = new Date(iso + 'T12:00:00');
+  const dow = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (iso === today) return ['Today', md];
+  if (iso === shiftDate(today, 1)) return ['Tomorrow', md];
+  return [dow, md];
+}
 
-  const W=500,H=230,pad={l:50,r:16,t:20,b:34};
-  const cw=W-pad.l-pad.r, ch=H-pad.t-pad.b;
-
-  const pts = cumulative.map((v,i) => ({ x:pad.l+(i/Math.max(days.length-1,1))*cw, y:pad.t+ch-(v/maxCum)*ch, cumVal:v, dayVal:days[i].snow_in, date:days[i].date, powder:days[i].powder }));
-
-  function smoothPath(points) {
-    if (points.length<2) return `M${points[0].x},${points[0].y}`;
-    let d=`M${points[0].x},${points[0].y}`;
-    for (let i=0;i<points.length-1;i++) {
-      const p0=points[Math.max(i-1,0)],p1=points[i],p2=points[i+1],p3=points[Math.min(i+2,points.length-1)];
-      d+=` C${p1.x+(p2.x-p0.x)/6},${p1.y+(p2.y-p0.y)/6} ${p2.x-(p3.x-p1.x)/6},${p2.y-(p3.y-p1.y)/6} ${p2.x},${p2.y}`;
-    }
-    return d;
-  }
-
-  const linePath=smoothPath(pts);
-  const areaPath=linePath+` L${pts[pts.length-1].x},${pad.t+ch} L${pts[0].x},${pad.t+ch} Z`;
-  let gridHTML='';
-  for(let i=0;i<=4;i++){const pct=i/4,y=pad.t+ch*(1-pct),val=(maxCum*pct).toFixed(1);gridHTML+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="rgba(56,189,248,.06)"/><text x="${pad.l-8}" y="${y+3.5}" text-anchor="end" fill="var(--text-muted)" font-size="10" font-family="JetBrains Mono,monospace">${val}"</text>`;}
-  let xHTML='';pts.forEach((p,i)=>{xHTML+=`<text x="${p.x}" y="${H-8}" text-anchor="middle" fill="var(--text-muted)" font-size="10" font-family="JetBrains Mono,monospace">${dayLabel(days[i].date)}</text>`;});
-  const barW=Math.min(cw/days.length*.5,26),barMax=Math.max(...days.map(d=>d.snow_in),.5);
-  let barsHTML='';days.forEach((d,i)=>{const x=pad.l+(i/Math.max(days.length-1,1))*cw,bh=Math.max((d.snow_in/barMax)*ch*.35,1);barsHTML+=`<rect x="${x-barW/2}" y="${pad.t+ch-bh}" width="${barW}" height="${bh}" rx="3" fill="url(#barGrad)" opacity=".25"/>`;});
-  let dotsHTML='';pts.forEach((p,i)=>{dotsHTML+=`<circle cx="${p.x}" cy="${p.y}" r="5" fill="var(--bg-card)" stroke="var(--accent-blue)" stroke-width="2.5" data-idx="${i}" style="cursor:pointer"/>`;});
-
-  container.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%" preserveAspectRatio="xMidYMid meet">
-    <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#38bdf8" stop-opacity=".2"/><stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/></linearGradient>
-    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#818cf8" stop-opacity=".6"/><stop offset="100%" stop-color="#38bdf8" stop-opacity=".2"/></linearGradient></defs>
-    ${gridHTML}${barsHTML}<path d="${areaPath}" fill="url(#areaGrad)"/><path d="${linePath}" fill="none" stroke="var(--accent-blue)" stroke-width="2.5" stroke-linecap="round"/>
-    ${dotsHTML}${xHTML}
-    <text x="${pad.l}" y="${pad.t-6}" fill="var(--text-muted)" font-size="9" font-family="JetBrains Mono,monospace">CUMULATIVE (inches)</text>
-    <text x="${W-pad.r}" y="${pad.t-6}" text-anchor="end" fill="var(--text-muted)" font-size="9" font-family="JetBrains Mono,monospace" opacity=".45">BARS = DAILY</text>
-  </svg><div class="chart-tooltip" id="chart-tooltip"><div class="tooltip-date" id="tt-date"></div><div class="tooltip-value" id="tt-value"></div><div class="tooltip-sub" id="tt-sub"></div></div>`;
-
-  const tooltip=document.getElementById('chart-tooltip');
-  container.querySelectorAll('circle[data-idx]').forEach(dot => {
-    dot.addEventListener('mouseenter',()=>{
-      const i=+dot.dataset.idx;
-      document.getElementById('tt-date').textContent=fullDate(days[i].date);
-      document.getElementById('tt-value').textContent=`${cumulative[i].toFixed(1)}" total / ${days[i].snow_in.toFixed(1)}" daily`;
-      document.getElementById('tt-sub').textContent=days[i].snow_in>0?`SLR ${days[i].slr}:1 · ${days[i].powder.desc}`:'';
-      const r=container.getBoundingClientRect(),dr=dot.getBoundingClientRect();
-      tooltip.style.left=(dr.left-r.left-70)+'px';tooltip.style.top=(dr.top-r.top-55)+'px';tooltip.classList.add('visible');
-    });
-    dot.addEventListener('mouseleave',()=>tooltip.classList.remove('visible'));
+/* ============================ DATA FETCH ============================ */
+async function fetchForecast(resort) {
+  const params = new URLSearchParams({
+    latitude: resort.lat, longitude: resort.lon,
+    current: 'temperature_2m,snowfall,wind_speed_10m,weather_code',
+    daily: 'weather_code,temperature_2m_max,temperature_2m_min,snowfall_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max',
+    temperature_unit: 'fahrenheit', wind_speed_unit: 'mph',
+    past_days: HIST_DAYS, forecast_days: FC_DAYS, timezone: 'America/Denver',
   });
+  const r = await fetch('https://api.open-meteo.com/v1/forecast?' + params);
+  if (!r.ok) throw new Error('forecast http ' + r.status);
+  return r.json();
 }
 
-// ── Bars (with powder tags) ──
-function renderAccumBars() {
-  const data = allData[selectedResort]; if (!data) return;
-  const c=document.getElementById('accum-bars'), days=data.history;
-  const mx=Math.max(...days.map(d=>d.snow_in),.5);
-  c.innerHTML = days.map(d => {
-    const pct=Math.max((d.snow_in/mx)*100,1.5), hl=d.snow_in>1;
-    const ptag = d.snow_in >= 0.5 ? powderTagHTML(d.avgTemp) : '';
-    return `<div class="accum-bar-row"><span class="accum-day">${dayLabel(d.date)}</span><div class="accum-bar-track"><div class="accum-bar-fill" style="width:${pct}%"></div></div><span class="accum-amount ${hl?'highlight':''}">${d.snow_in.toFixed(1)}"${ptag}</span></div>`;
-  }).join('');
+/* Real observed snow depth (inches) from NRCS SNOTEL */
+async function fetchSnotel(resort, beginDate, endDate) {
+  const params = new URLSearchParams({
+    stationTriplets: resort.snotel, elements: 'SNWD', duration: 'daily',
+    beginDate, endDate,
+  });
+  const r = await fetch('https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?' + params);
+  if (!r.ok) throw new Error('snotel http ' + r.status);
+  return r.json();
 }
 
-// ── Forecast (with powder tags) ──
-function renderForecast() {
-  const data = allData[selectedResort]; if (!data) return;
-  const c=document.getElementById('forecast-scroll');
-  document.getElementById('forecast-total').textContent = `${data.fore14total.toFixed(1)}" EXPECTED`;
-  c.innerHTML = `<div class="forecast-row">${data.forecast.map(d => {
-    const hs=d.snow_in>=0.5;
-    const ptag = hs ? `<div class="fc-powder">${powderTagHTML(d.avgTemp)}</div>` : '';
-    return `<div class="forecast-card ${hs?'has-snow':''}"><div class="fc-day">${dayLabel(d.date)}</div><div class="fc-date">${shortDate(d.date)}</div><div class="fc-icon">${weatherIconSVG(d.code)}</div><div class="fc-snow ${hs?'':'none'}">${hs?d.snow_in.toFixed(1)+'"':'--'}</div><div class="fc-temp">${d.high}°<span>/ ${d.low}°</span></div>${ptag}</div>`;
-  }).join('')}</div>`;
+function cmToIn(cm) { return cm / 2.54; }  // snowfall_sum is already SNOW depth in cm — no SLR multiply
+
+/* ============================ PROCESS ============================ */
+function process(resort, fc, sn) {
+  const today = localToday();
+  const daily = fc.daily;
+  const days = daily.time.map((date, i) => ({
+    date,
+    code: daily.weather_code[i],
+    tmax: daily.temperature_2m_max[i],
+    tmin: daily.temperature_2m_min[i],
+    snowIn: cmToIn(daily.snowfall_sum[i] || 0),   // corrected: no ratio multiply
+    pop: daily.precipitation_probability_max[i],
+    wind: daily.wind_speed_10m_max[i],
+    gust: daily.wind_gusts_10m_max[i],
+  }));
+
+  const hist = days.filter(d => d.date < today);
+  const future = days.filter(d => d.date >= today);
+
+  /* Observed new snow = day-over-day increase in SNOTEL snow depth (floor 0) */
+  let obs = [], depthNow = null, obsSource = null;
+  try {
+    const vals = sn && sn[0] && sn[0].data && sn[0].data[0] && sn[0].data[0].values ? sn[0].data[0].values : [];
+    const el = sn && sn[0] && sn[0].data && sn[0].data[0] ? sn[0].data[0].stationElement : null;
+    obsSource = el ? 'SNOTEL' : null;
+    let prev = null;
+    for (const v of vals) {
+      const depth = (v.value == null) ? null : Number(v.value);
+      if (depth != null && prev != null) {
+        obs.push({ date: v.date, newIn: Math.max(0, depth - prev) });
+      }
+      if (depth != null) { prev = depth; depthNow = depth; }
+    }
+  } catch (e) { obs = []; }
+
+  const obsTotal = r1(obs.reduce((s, o) => s + o.newIn, 0));
+  const fc72 = r1(future.slice(0, 3).reduce((s, d) => s + d.snowIn, 0));
+  const fc7d = r1(future.slice(0, 7).reduce((s, d) => s + d.snowIn, 0));
+
+  return { today, days, hist, future, obs, obsTotal, fc72, fc7d, depthNow, obsSource,
+           current: fc.current, currentUnits: fc.current_units };
 }
 
-// ── Table (with snow type column) ──
-function renderTable() {
-  const tbody=document.getElementById('resort-tbody');
-  const data=Object.values(allData).sort((a,b)=>b.hist7total-a.hist7total);
-  const g7=Math.max(...data.map(d=>d.hist7total),1),gF=Math.max(...data.map(d=>d.fore14total),1);
-  document.getElementById('resort-count').textContent=`${data.length} RESORTS`;
-  tbody.innerHTML=data.map(d=>{
-    const dot=d.hist7total>8?'hot':d.hist7total>2?'warm':'cool';
-    const pqTag = d.dominantPowder ? `<span class="powder-tag ${d.dominantPowder.cls}">${d.dominantPowder.label}</span>` : '--';
-    return `<tr class="${d.name===selectedResort?'active-row':''}" data-resort="${d.name}">
-      <td><div class="resort-name-cell"><span class="resort-dot ${dot}"></span><strong>${d.name}</strong></div></td>
-      <td><span class="mono text-muted">${d.elev.toLocaleString()}'</span></td>
-      <td><span class="mono font-medium text-blue">${d.hist7total.toFixed(1)}"</span><span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.max((d.hist7total/g7)*100,2)}%"></span></span></td>
-      <td><span class="mono font-medium text-cyan">${d.fore14total.toFixed(1)}"</span><span class="mini-bar"><span class="mini-bar-fill" style="width:${Math.max((d.fore14total/gF)*100,2)}%"></span></span></td>
-      <td><span class="mono text-secondary">${d.nextSnowDay}</span></td>
-      <td>${pqTag}</td>
-      <td><span class="mono">${d.current.temp}°F <span class="text-muted">/ ${d.current.wind} mph</span></span></td></tr>`;
-  }).join('');
-  tbody.querySelectorAll('tr[data-resort]').forEach(r=>r.addEventListener('click',()=>{ selectedResort=r.dataset.resort; renderResortChips();renderAccumChart();renderAccumBars();renderForecast();renderTable(); document.getElementById('main-content').scrollIntoView({behavior:'smooth'}); }));
+/* ============================ MAP ============================ */
+function initMap() {
+  state.map = L.map('map', { zoomControl: true, attributionControl: true }).setView([39.25, -106.0], 8);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap &copy; CARTO',
+  }).addTo(state.map);
+
+  RESORTS.forEach(res => {
+    const m = L.marker([res.lat, res.lon], {
+      icon: L.divIcon({ className: '', html: `<div class="resort-marker" data-r="${res.name}"><span class="val">—</span></div>`, iconSize: null }),
+      title: res.name,
+    }).addTo(state.map);
+    m.on('click', () => selectResort(res, true));
+    state.markers[res.name] = m;
+  });
+
+  $('radarBtn').addEventListener('click', toggleRadar);
 }
 
-// ── Snow Particles ──
-function initSnow() {
-  const canvas=document.getElementById('snow-canvas'),ctx=canvas.getContext('2d');let w,h,p=[];
-  function rs(){w=canvas.width=innerWidth;h=canvas.height=innerHeight}rs();addEventListener('resize',rs);
-  const N=Math.min(50,Math.floor(innerWidth/20));
-  for(let i=0;i<N;i++)p.push({x:Math.random()*w,y:Math.random()*h,r:Math.random()*2+.5,vx:(Math.random()-.5)*.2,vy:Math.random()*.45+.15,o:Math.random()*.35+.1});
-  (function d(){ctx.clearRect(0,0,w,h);p.forEach(q=>{ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,Math.PI*2);ctx.fillStyle=`rgba(180,210,240,${q.o})`;ctx.fill();q.x+=q.vx;q.y+=q.vy;if(q.y>h+5){q.y=-5;q.x=Math.random()*w}if(q.x>w+5)q.x=-5;if(q.x<-5)q.x=w+5});requestAnimationFrame(d)})();
+function updateMarker(res, d) {
+  const el = state.markers[res.name] && state.markers[res.name].getElement();
+  if (!el) return;
+  const mk = el.querySelector('.resort-marker');
+  const v = d ? d.fc72 : null;
+  const label = (v != null && v >= 0.1) ? v + '"' : '—';
+  mk.querySelector('.val').textContent = label;
+  mk.classList.toggle('big', v != null && v >= 6);
+  mk.classList.toggle('selected', state.selected === res.name);
 }
 
-// ── Init ──
-async function init() {
-  initSnow();
-  document.getElementById('update-time').textContent = `Updated ${new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}`;
-  await fetchAllData();
-  if (!Object.keys(allData).length) return;
-  const best = Object.values(allData).reduce((a,b)=>a.hist7total>b.hist7total?a:b);
-  selectedResort = best.name;
-  renderSummary(); renderMap(); renderResortChips(); renderAccumChart(); renderAccumBars(); renderForecast(); renderTable();
+function toggleRadar() {
+  state.radarOn = !state.radarOn;
+  const btn = $('radarBtn');
+  btn.classList.toggle('on', state.radarOn);
+  if (state.radarOn) {
+    state.radar = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png', { opacity: 0.6, attribution: 'RainViewer' }).addTo(state.map);
+  } else if (state.radar) {
+    state.map.removeLayer(state.radar); state.radar = null;
+  }
+}
+
+/* ============================ RENDER ============================ */
+function confidence(dayIndex, pop) {
+  // confidence decays with lead time, nudged by precip probability
+  const base = Math.max(0.25, 1 - dayIndex * 0.075);
+  const adj = pop != null ? (pop / 100) * 0.2 : 0;
+  const c = Math.min(0.98, base + adj);
+  const label = c > 0.75 ? 'High' : c > 0.5 ? 'Medium' : 'Low';
+  const color = c > 0.75 ? 'var(--good)' : c > 0.5 ? 'var(--accent)' : 'var(--warn)';
+  return { pct: Math.round(c * 100), label, color };
+}
+
+function renderPanel(res, d) {
+  const cur = d.current || {};
+  const curT = cur.temperature_2m != null ? r0(cur.temperature_2m) + '°' : '—';
+  const depth = d.depthNow != null ? r0(d.depthNow) + '"' : '—';
+
+  let html = `
+    <div class="panel-head">
+      <div>
+        <h2>${res.name}</h2>
+        <div class="region">${res.region} Colorado</div>
+        <div class="elev">Summit <b>${res.elev.toLocaleString()} ft</b></div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:26px;font-weight:800;line-height:1">${curT}</div>
+        <div style="font-size:10.5px;color:var(--muted);margin-top:2px">current</div>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat">
+        <div class="label">Past 7 days <span class="obs-tag">OBS</span></div>
+        <div class="val">${d.obsTotal}<small>"</small></div>
+        <div class="sub">SNOTEL new snow</div>
+      </div>
+      <div class="stat">
+        <div class="label">Snow depth <span class="obs-tag">OBS</span></div>
+        <div class="val">${depth.replace('"','')}<small>"</small></div>
+        <div class="sub">on the ground</div>
+      </div>
+      <div class="stat accent">
+        <div class="label">Next 72 hrs <span class="fc-tag">FCST</span></div>
+        <div class="val">${d.fc72}<small>"</small></div>
+        <div class="sub">expected new snow</div>
+      </div>
+      <div class="stat">
+        <div class="label">Next 7 days <span class="fc-tag">FCST</span></div>
+        <div class="val">${d.fc7d}<small>"</small></div>
+        <div class="sub">expected new snow</div>
+      </div>
+    </div>
+
+    <div class="sec-title">14-day snowfall</div>
+    <div class="chart-wrap">
+      ${renderChart(d)}
+      <div class="chart-legend">
+        <div class="k"><span class="sw" style="background:#3ddc97"></span>Observed (SNOTEL)</div>
+        <div class="k"><span class="sw" style="background:#4cc2ff"></span>Forecast</div>
+      </div>
+    </div>
+
+    <div class="sec-title">Daily forecast</div>
+    ${d.future.slice(0, 7).map((day, i) => renderDayCard(day, d.today, i)).join('')}
+
+    <div class="sec-title">All days</div>
+    <div class="chart-wrap" style="padding:6px 8px">
+      <table>
+        <thead><tr><th>Day</th><th>High</th><th>Low</th><th>Snow</th><th>POP</th></tr></thead>
+        <tbody>
+          ${d.future.map((day) => {
+            const [dw, md] = niceDay(day.date, d.today);
+            const s = day.snowIn >= 0.1 ? r1(day.snowIn) + '"' : '—';
+            return `<tr><td>${dw} <span style="color:var(--dim);font-size:10px">${md}</span></td><td class="t">${r0(day.tmax)}°</td><td style="color:var(--muted)">${r0(day.tmin)}°</td><td class="s">${s}</td><td style="color:var(--muted)">${day.pop != null ? day.pop + '%' : '—'}</td></tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="src-note">
+      <b>Observed:</b> NRCS SNOTEL station ${res.snotel.split(':')[0]} (daily snow depth, new snow = depth increase).<br>
+      <b>Forecast:</b> Open-Meteo model blend at a point near the resort; point elevation may differ from summit. Updated just now.
+    </div>
+  `;
+  $('panelContent').innerHTML = html;
+}
+
+function renderDayCard(day, today, idx) {
+  const [dw, md] = niceDay(day.date, today);
+  const s = day.snowIn >= 0.1 ? r1(day.snowIn) : null;
+  const c = confidence(idx, day.pop);
+  const windHold = day.gust != null && day.gust >= 40;
+  return `
+    <div class="day-card">
+      <div class="day-top">
+        <div style="display:flex;align-items:center;gap:9px">
+          ${wxIcon(day.code)}
+          <div class="d">${dw}<small>${md}</small></div>
+        </div>
+        <div class="snow-pill ${s ? '' : 'none'}">${s ? s + '"' : '—'}</div>
+      </div>
+      <div class="day-meta">
+        <span>High <b>${r0(day.tmax)}°</b></span>
+        <span>Low <b>${r0(day.tmin)}°</b></span>
+        <span>POP <b>${day.pop != null ? day.pop + '%' : '—'}</b></span>
+        <span style="display:flex;align-items:center;gap:4px">${IC.wind}<b>${r0(day.wind)} mph</b></span>
+      </div>
+      ${windHold ? `<div class="wind-flag">${IC.alert} Lift-hold risk — gusts to ${r0(day.gust)} mph</div>` : ''}
+      <div class="conf">
+        <div class="bar"><i style="width:${c.pct}%;background:${c.color}"></i></div>
+        <span style="color:${c.color}">${c.label}</span>
+      </div>
+    </div>`;
+}
+
+function renderChart(d) {
+  const W = 320, H = 190, padL = 30, padB = 26, padT = 14, padR = 8;
+  const obsByDate = {}; d.obs.forEach(o => obsByDate[o.date] = o.newIn);
+  const all = d.days.map(day => ({
+    date: day.date,
+    obs: obsByDate[day.date] != null ? obsByDate[day.date] : null,
+    fc: day.date >= d.today ? day.snowIn : null,
+  }));
+  const maxV = Math.max(1, ...all.map(a => Math.max(a.obs || 0, a.fc || 0)));
+  const n = all.length;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const x = i => padL + (i + 0.5) * (iw / n);
+  const y = v => padT + ih - (v / maxV) * ih;
+  const bw = Math.max(4, (iw / n) * 0.6);
+
+  let bars = '', labels = '', grid = '';
+  for (let g = 0; g <= 4; g++) {
+    const gv = (maxV / 4) * g;
+    grid += `<line x1="${padL}" y1="${y(gv)}" x2="${W - padR}" y2="${y(gv)}" stroke="#232a36" stroke-width="1"/>` +
+            `<text x="${padL - 6}" y="${y(gv) + 3}" fill="#5c6774" font-size="9" text-anchor="end">${r1(gv)}</text>`;
+  }
+  all.forEach((a, i) => {
+    const date = new Date(a.date + 'T12:00:00');
+    if (i % Math.ceil(n / 7) === 0) {
+      labels += `<text x="${x(i)}" y="${H - 8}" fill="#5c6774" font-size="9" text-anchor="middle">${date.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</text>`;
+    }
+    if (a.obs != null && a.obs >= 0.05) {
+      const h = (a.obs / maxV) * ih;
+      bars += `<rect x="${x(i) - bw / 2}" y="${y(a.obs)}" width="${bw}" height="${Math.max(1.5, h)}" rx="2" fill="#3ddc97"/>`;
+    }
+    if (a.fc != null && a.fc >= 0.05) {
+      const h = (a.fc / maxV) * ih;
+      bars += `<rect x="${x(i) - bw / 2}" y="${y(a.fc)}" width="${bw}" height="${Math.max(1.5, h)}" rx="2" fill="#4cc2ff"/>`;
+    }
+  });
+  // "today" divider
+  const ti = all.findIndex(a => a.date === d.today);
+  if (ti >= 0) {
+    grid += `<line x1="${x(ti)}" y1="${padT}" x2="${x(ti)}" y2="${H - padB}" stroke="#2c3542" stroke-dasharray="3 3"/>`;
+  }
+  return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${grid}${bars}${labels}</svg>`;
+}
+
+function skeleton() {
+  $('panelContent').innerHTML = `
+    <div class="skel" style="height:70px;margin-bottom:16px"></div>
+    <div class="stat-grid">${'<div class="skel" style="height:74px"></div>'.repeat(4)}</div>
+    <div class="skel" style="height:220px;margin:18px 0"></div>
+    ${'<div class="skel" style="height:86px;margin-bottom:8px"></div>'.repeat(4)}`;
+}
+
+/* ============================ ORCHESTRATION ============================ */
+async function loadResort(res) {
+  const end = localToday();
+  const begin = shiftDate(end, -(HIST_DAYS + 1));
+  const [fc, sn] = await Promise.all([
+    fetchForecast(res),
+    fetchSnotel(res, begin, end).catch(() => null),
+  ]);
+  const d = process(res, fc, sn);
+  state.data[res.name] = d;
+  updateMarker(res, d);
+  return d;
+}
+
+async function selectResort(res, fromMap) {
+  state.selected = res.name;
+  Object.values(state.markers).forEach(m => {
+    const el = m.getElement(); if (el) el.querySelector('.resort-marker').classList.remove('selected');
+  });
+  skeleton();
+  try {
+    const d = await loadResort(res);
+    renderPanel(res, d);
+    updateMarker(res, d);
+    if (fromMap) state.map.panTo([res.lat, res.lon], { animate: true });
+    const mk = state.markers[res.name];
+    mk.bindPopup(`<b>${res.name}</b><br>72-hr forecast: <b>${d.fc72}"</b><br>7-day observed: <b>${d.obsTotal}"</b>`).openPopup();
+  } catch (e) {
+    $('panelContent').innerHTML = `<div style="padding:20px;color:var(--bad);font-size:13px">Failed to load data for ${res.name}.<br><span style="color:var(--muted);font-size:11px">${e.message}</span></div>`;
+  }
+}
+
+async function refreshAll() {
+  await Promise.all(RESORTS.map(r => loadResort(r).catch(() => null)));
+  if (state.selected) {
+    const res = RESORTS.find(r => r.name === state.selected);
+    if (res && state.data[res.name]) renderPanel(res, state.data[res.name]);
+  }
+  const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Denver' });
+  $('clock').textContent = 'Updated ' + now;
+}
+
+function startClock() {
+  const tick = () => {
+    $('clock').textContent = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'America/Denver' }) + ' MT';
+  };
+  tick(); setInterval(tick, 1000);
+}
+
+/* ============================ INIT ============================ */
+function init() {
+  initMap();
+  startClock();
+  refreshAll();
+  selectResort(RESORTS[0], false);
+  setInterval(refreshAll, REFRESH_MS);
 }
 init();
 </script>
