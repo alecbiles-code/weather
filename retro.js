@@ -42,9 +42,10 @@ export async function loadLists() {
 export function skierHTML(list) {
   const s = dailyPick(list, localDate());
   if (!s) return '<p class="muted">Add skiers to data/skiers.csv.</p>';
-  const nick = s.nickname && s.nickname !== `${s.first_name} ${s.last_name}` ? s.nickname : '';
-  return `<p><span class="new">NEW!</span></p><p class="skier-name">${esc(nick || s.first_name)}</p>
-    <p>${esc([s.first_name, s.last_name].filter(Boolean).join(' '))}</p>${s.home ? `<p class="skier-sub">Home: ${esc(s.home)}</p>` : ''}
+  const name = [s.first_name, s.last_name].filter(Boolean).join(' ');
+  const nick = s.nickname && s.nickname !== name ? s.nickname : ''; // skip a nickname that just repeats the name
+  return `<p><span class="new">NEW!</span></p><p class="skier-name">${esc(name || s.nickname)}</p>
+    ${nick ? `<p>Nickname: <b>${esc(nick)}</b></p>` : ''}${s.home ? `<p class="skier-sub">Home: ${esc(s.home)}</p>` : ''}
     <p class="box-foot">A new skier every day at midnight. ${list.length} in the lineup.</p>`;
 }
 export function factHTML(list) {
