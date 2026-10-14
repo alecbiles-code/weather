@@ -46,11 +46,11 @@ export function skierHTML(list) {
   const nick = s.nickname && s.nickname !== name ? s.nickname : ''; // skip a nickname that just repeats the name
   return `<p><span class="new">NEW!</span></p><p class="skier-name">${esc(name || s.nickname)}</p>
     ${nick ? `<p>Nickname: <b>${esc(nick)}</b></p>` : ''}${s.home ? `<p class="skier-sub">Home: ${esc(s.home)}</p>` : ''}
-    <p class="box-foot">A new skier every day at midnight. ${list.length} in the lineup.</p>`;
+    <p class="box-foot">A new skier every day at midnight hell yeah.</p>`;
 }
 export function factHTML(list) {
   const f = dailyPick(list, localDate());
-  return f ? `<p class="fact">"${esc(f)}"</p><p class="box-foot">Fact quality not guaranteed. New fact every day.</p>` : '<p class="muted">Add facts to data/facts.csv.</p>';
+  return f ? `<p class="fact">"${esc(f)}"</p><p class="box-foot">All facts very true. New fact every day.</p>` : '<p class="muted">Add facts to data/facts.csv.</p>';
 }
 export const todaysSkier = list => dailyPick(list, localDate());
 export const todaysFact = list => dailyPick(list, localDate());
