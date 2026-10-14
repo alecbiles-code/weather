@@ -76,7 +76,7 @@ export function sampleStat(hours, start, end, field, fn = 'max') {
 export function sumComplete(values) { return values.length && values.every(finite) ? values.reduce((s, v) => s + v, 0) : null; }
 
 /* ---- Open-Meteo parsing ---- */
-const FIELDS = {temperature_2m: 'temp', temperature_600hPa: 't600', temperature_500hPa: 't500', wind_speed_10m: 'wind', wind_gusts_10m: 'gust', freezing_level_height: 'freezing', rain: 'rain', weather_code: 'code', precipitation_probability: 'pop'};
+const FIELDS = {precipitation: 'precip', temperature_2m: 'temp', temperature_600hPa: 't600', temperature_500hPa: 't500', wind_speed_10m: 'wind', wind_gusts_10m: 'gust', freezing_level_height: 'freezing', rain: 'rain', weather_code: 'code', precipitation_probability: 'pop'};
 function snowFactor(unit) { if (unit === 'cm') return 1; if (unit === 'inch') return 2.54; throw new Error('Unrecognized snowfall unit'); }
 function checkTimeline(hours) {
   if (hours.some((h, i) => i > 0 && h.t - hours[i - 1].t < HOUR)) throw new Error('Duplicate or non-hourly forecast timestamps');
@@ -96,7 +96,7 @@ export function normalizeForecast(raw, {fetchedAt = Date.now(), variant = 'point
     const row = {t: t * 1000, snow: s === null ? null : s * sf};
     for (const [key, name] of Object.entries(FIELDS)) if (h[key]) {
       const v = numeric(h[key][i]);
-      row[name] = ['wind', 'gust', 'rain'].includes(name) ? nonneg(v) : v;
+      row[name] = ['wind', 'gust', 'rain', 'precip'].includes(name) ? nonneg(v) : v;
     }
     return row;
   }).sort((a, b) => a.t - b.t);
@@ -152,7 +152,8 @@ export function slrEstimate(hours, start, end) {
   if (!any) return {liquidMm: 0, snowCm: 0, ratio: null};
   return {liquidMm: liquid, snowCm: adjusted, ratio: adjusted * 10 / liquid};
 }
-export function densityLabel(ratio) { return !finite(ratio) ? null : ratio < 10 ? 'Dense' : ratio <= 15 ? 'Average' : 'Light'; }
+/** Snow quality from snow-to-liquid ratio. Higher ratio = lighter, drier snow. */
+export function qualityLabel(ratio) { return !finite(ratio) ? null : ratio >= 17 ? 'Blower' : ratio >= 13 ? 'Powder' : ratio >= 10 ? 'Average' : 'Heavy'; }
 
 /* ---- NRCS SNOTEL: snow-depth changes are never called snowfall. ---- */
 export function parseStationData(raw, triplet) {
@@ -167,6 +168,60 @@ export function parseStationData(raw, triplet) {
       .sort((a, b) => a.date.localeCompare(b.date));
   }
   return out;
+}
+
+/**
+ * Measured new snow at a SNOTEL station for one calendar day, in cm.
+ * NRCS daily values are end-of-day readings (the value dated D equals the hourly reading at
+ * midnight ending D), so snow during D is depth(D) - depth(D - 1).
+ * Depth sensors jitter by about an inch, so a gain counts only when it is at least 1 in and the
+ * snow water equivalent did not fall; otherwise the day is 0. Missing readings stay null.
+ */
+export function measuredDay(station, date) {
+  const get = (el, d) => station?.[el]?.find(v => v.date === d)?.value ?? null;
+  const prev = shiftDate(date, -1);
+  const d1 = get('SNWD', date), d0 = get('SNWD', prev);
+  if (!finite(d1) || !finite(d0)) return null;
+  const w1 = get('WTEQ', date), w0 = get('WTEQ', prev);
+  const dDepth = d1 - d0, dSwe = finite(w1) && finite(w0) ? w1 - w0 : null;
+  const snowIn = dDepth >= 1 && (dSwe === null || dSwe >= 0) ? dDepth : 0;
+  const ratio = snowIn >= 2 && dSwe !== null && dSwe >= 0.1 ? snowIn / dSwe : null;
+  return {cm: snowIn * 2.54, depthIn: d1, depthChangeIn: dDepth, sweChangeIn: dSwe, ratio, quality: qualityLabel(ratio)};
+}
+
+/* ---- Small CSV reader for the owner-edited lists in data/ ---- */
+export function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(field); rows.push(row); row = []; field = ''; }
+    else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  const clean = rows.filter(r => r.some(v => v.trim()));
+  const head = clean.shift()?.map(h => h.trim()) || [];
+  return clean.map(r => Object.fromEntries(head.map((h, i) => [h, (r[i] || '').trim()])));
+}
+
+/**
+ * Same pick for everyone on a given Colorado date, and no repeats until the whole list is used.
+ * Each pass through the list uses a different shuffle, seeded by the pass number.
+ */
+export function dailyPick(list, date) {
+  if (!list.length) return null;
+  const day = Math.floor(Date.parse(date + 'T12:00:00Z') / 86400000), pass = Math.floor(day / list.length);
+  let seed = (pass * 2654435761) >>> 0;
+  const rand = () => { seed = (seed + 0x6D2B79F5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const order = list.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  return list[order[day % list.length]];
 }
 
 /* ---- CAIC polygons ---- */

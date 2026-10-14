@@ -4,19 +4,21 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<meta name="theme-color" content="#f5f7f9" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0d1116" media="(prefers-color-scheme: dark)">
-<meta name="description" content="Powcast: daily snowfall for 32 Colorado resorts and passes. Past 10 days and next 15, multi-model comparisons, and a 3D snowfall map. Model, station, and official data stay labeled.">
-<title>Powcast | Colorado snowfall</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231d5fae'/%3E%3Cpath d='m5 24 8-14 5 8 3-5 6 11Z' fill='%23fff'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#008080" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="description" content="ALEC'S SNOW PAGE: daily snowfall for 32 Colorado resorts and passes. Measured past from SNOTEL, 15-day forecasts, a scored model comparison, and a 3D snow map.">
+<title>ALEC'S SNOW PAGE</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000080'/%3E%3Cpath d='M16 4v24M5.6 10l20.8 12M5.6 22 26.4 10' stroke='%23fff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="styles.css">
 <script>
-  // Apply the saved theme before first paint to avoid a flash.
-  try { const t = JSON.parse(localStorage.getItem('powcast-v3') || '{}').theme; if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+  // Apply saved theme and animation choice before first paint.
+  try {
+    const p = JSON.parse(localStorage.getItem('powcast-v3') || '{}');
+    if (p.theme === 'light' || p.theme === 'dark') document.documentElement.dataset.theme = p.theme;
+    const anim = p.anim !== false && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    document.documentElement.classList.add(anim ? 'anim-on' : 'anim-off');
+  } catch { document.documentElement.classList.add('anim-off'); }
 </script>
 <script type="module" src="app.js"></script>
 </head>
@@ -24,59 +26,84 @@
 <a href="#main" class="skip">Skip to content</a>
 <svg xmlns="http://www.w3.org/2000/svg" class="sprite" aria-hidden="true"><defs>
 <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9Z"/></symbol>
-<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2m0 15v2M2.5 12h2m15 0h2M5.3 5.3l1.4 1.4m10.6 10.6 1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></symbol>
-<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5Z"/></symbol>
+<symbol id="i-flake" viewBox="0 0 24 24"><path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 3.8l3 2.8 3-2.8M9 20.2l3-2.8 3 2.8M3.6 10.6l4-1.1-1.1-4M20.4 13.4l-4 1.1 1.1 4M6.5 18.5l1.1-4-4-1.1M17.5 5.5l-1.1 4 4 1.1"/></symbol>
 <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
 <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6-9 9M10 5H5v14h14v-5"/></symbol>
 <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8m0-4v4h4m-4 5a8 8 0 0 0 14.3 4.9L20 16m0 4v-4h-4"/></symbol>
 <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
 <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2Zm6-2v14m6-12v14"/></symbol>
+<symbol id="i-table" viewBox="0 0 24 24"><path d="M3 5h18v14H3Zm0 5h18M3 15h18M9 5v14"/></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6Zm9 0v4h4M9 12h7M9 16h7"/></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7Z"/></symbol>
 <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14m8-14v14"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
-<symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12 18 6"/></symbol>
+<symbol id="i-cam" viewBox="0 0 24 24"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="4"/></symbol>
 <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m15.5 8.5-2 5-5 2 2-5Z"/></symbol>
+<symbol id="i-plane" viewBox="0 0 24 24"><path d="M3 13l18-8-6 16-3-6-6-2Z"/></symbol>
 </defs></svg>
-<header class="topbar">
-  <div class="topbar-inner">
-    <a class="brand" href="#/" aria-label="Powcast, all locations">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="m5 24 8-14 5 8 3-5 6 11Z"/></svg>
-      <span translate="no">Powcast</span>
-    </a>
-    <nav class="nav" aria-label="Main">
+
+<header class="banner">
+  <div class="flames" aria-hidden="true"></div>
+  <p class="wordart"><svg class="icon flake spin" aria-hidden="true"><use href="#i-flake"/></svg><span class="text">ALEC'S SNOW PAGE</span><svg class="icon flake spin" aria-hidden="true"><use href="#i-flake"/></svg></p>
+  <p class="banner-sub">Colorado snow &middot; measured and forecast</p>
+</header>
+<div class="ticker" aria-hidden="true"><div class="ticker-track" id="ticker"><span>Loading the snow report...</span></div></div>
+<p class="sr-only" id="tickerText" aria-live="polite"></p>
+
+<main id="main" tabindex="-1">
+  <div class="win main-win">
+    <div class="titlebar"><svg class="icon" aria-hidden="true"><use href="#i-flake"/></svg><span class="t" id="winTitle">Snowfall - ALEC'S SNOW PAGE</span><span class="title-btns" aria-hidden="true"><i>_</i><i>&#9633;</i><i>&times;</i></span></div>
+    <nav class="menubar" aria-label="Main">
       <a href="#/" data-route="home">Snowfall</a>
-      <a href="#/map" data-route="map">3D map</a>
+      <a href="#/map" data-route="map">3D Map</a>
       <a href="#/about" data-route="about">Methods</a>
     </nav>
-    <div class="top-actions">
-      <div class="segmented" role="group" aria-label="Units">
-        <button type="button" data-units="imperial" aria-pressed="true">in</button>
-        <button type="button" data-units="metric" aria-pressed="false">cm</button>
-      </div>
-      <button type="button" class="icon-btn" id="themeButton" aria-label="Switch theme"><svg class="icon"><use href="#i-moon"/></svg></button>
-    </div>
+    <section id="view-home" class="view" hidden></section>
+    <section id="view-resort" class="view" hidden></section>
+    <section id="view-map" class="view" hidden></section>
+    <section id="view-about" class="view" hidden></section>
+    <div class="statusbar" id="status" role="status" aria-live="polite"></div>
   </div>
-</header>
-<main id="main" tabindex="-1">
-  <div class="status" id="status" role="status" aria-live="polite"></div>
-  <section id="view-home" class="view" aria-labelledby="homeTitle" hidden></section>
-  <section id="view-resort" class="view" hidden></section>
-  <section id="view-map" class="view view-map" aria-labelledby="mapTitle" hidden></section>
-  <section id="view-about" class="view prose-view" aria-labelledby="aboutTitle" hidden></section>
 </main>
+
 <footer class="footer">
-  <div class="footer-inner">
-    <p><strong translate="no">Powcast</strong> is an independent viewing tool. Not affiliated with OpenSnow or any resort. Forecasts are model output; always check official sources.</p>
-    <p class="links">
-      <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Weather data by Open-Meteo</a>
-      <a href="https://www.nrcs.usda.gov/resources/data-and-reports/snow-and-water-interactive-map" target="_blank" rel="noopener noreferrer">NRCS SNOTEL</a>
-      <a href="https://avalanche.state.co.us/" target="_blank" rel="noopener noreferrer">CAIC avalanche forecasts</a>
-      <a href="https://www.cotrip.org/" target="_blank" rel="noopener noreferrer">Colorado road conditions (COTrip)</a>
-    </p>
+  <div class="badges" aria-label="Credits">
+    <a class="badge" href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Forecasts by<br><em>Open-Meteo</em></a>
+    <a class="badge" href="https://www.nrcs.usda.gov/resources/data-and-reports/snow-and-water-interactive-map" target="_blank" rel="noopener noreferrer">Measured by<br><em>NRCS SNOTEL</em></a>
+    <a class="badge" href="https://avalanche.state.co.us/" target="_blank" rel="noopener noreferrer">Avalanche info<br><em>CAIC</em></a>
+    <a class="badge" href="https://www.cotrip.org/" target="_blank" rel="noopener noreferrer">Road conditions<br><em>COTrip</em></a>
+    <span class="badge">Best viewed at<br><em>800 x 600</em></span>
   </div>
+  <p>ALEC'S SNOW PAGE is an independent hobby site. Not affiliated with OpenSnow or any resort. Forecasts are model output; check official sources before you go.</p>
 </footer>
+
+<div class="taskbar" role="navigation" aria-label="Taskbar">
+  <button type="button" class="start" id="startButton" aria-expanded="false" aria-controls="startMenu"><svg class="icon" aria-hidden="true"><use href="#i-flake"/></svg>Start</button>
+  <div class="tasks">
+    <a href="#/" data-route="home"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-table"/></svg><span>Snowfall</span></a>
+    <a href="#/map" data-route="map"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-map"/></svg><span>3D Map</span></a>
+    <a href="#/about" data-route="about"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-doc"/></svg><span>Methods</span></a>
+  </div>
+  <div class="tray">
+    <button type="button" class="opt" data-units-toggle aria-label="Switch units"></button>
+    <span id="clock"></span>
+  </div>
+</div>
+<div class="start-menu" id="startMenu" hidden>
+  <div class="start-side" aria-hidden="true">ALEC'S SNOW <b>95</b></div>
+  <div class="start-items">
+    <a href="#/"><svg class="icon" aria-hidden="true"><use href="#i-table"/></svg>Snowfall</a>
+    <a href="#/map"><svg class="icon" aria-hidden="true"><use href="#i-map"/></svg>3D Map</a>
+    <a href="#/about"><svg class="icon" aria-hidden="true"><use href="#i-doc"/></svg>Methods</a>
+    <hr>
+    <button type="button" data-action="refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh forecasts</button>
+    <button type="button" data-units-toggle></button>
+    <button type="button" id="themeButton"></button>
+    <button type="button" id="animButton"></button>
+  </div>
+</div>
 <div class="tip" id="tip" role="tooltip" hidden></div>
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
-<noscript><p class="noscript">Powcast needs JavaScript to load forecasts. Official sources are linked in the footer.</p></noscript>
+<noscript><p class="noscript">ALEC'S SNOW PAGE needs JavaScript to load forecasts. Official sources are linked below.</p></noscript>
 </body>
 </html>

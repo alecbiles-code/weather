@@ -1,22 +1,29 @@
-# Powcast
+# ALEC'S SNOW PAGE
 
-Colorado snowfall viewer for 32 resorts and backcountry passes, live at https://alecbiles-code.github.io/weather/.
+Colorado snow viewer for 32 resorts and backcountry passes, live at https://alecbiles-code.github.io/weather/. Windows 95 look, real data underneath.
 
-1. Homepage: a sortable matrix of daily snowfall, past 10 days and next 15, for every location, with a storm timeline row.
-2. Location pages: daily and hourly snowfall, a 14-model comparison with spread labels, a day table with a labeled snow-density estimate, the nearest SNOTEL station, and the matching CAIC bulletin.
-3. 3D map: MapLibre GL with keyless terrain, snowfall columns, day playback, and optional radar.
-
-Model output, station measurements, and official bulletins stay labeled separately. Missing data is shown as a dash, never zero. See the in-app Methods page for sources and model ids.
+1. Homepage: a sortable table of daily snowfall. The past 10 days are measured at SNOTEL stations, and the next 15 come from the Open-Meteo forecast. Also on the page: snow quality, Skier of the Day, Alec's Fun Fact, Storm Watch, and an optional guestbook.
+2. Location pages: daily and hourly snowfall, a scoreboard of which model to trust (scored against last winter's measurements), a 14-model comparison, a day table with measured and estimated snow quality, the SNOTEL snowpack, the CAIC bulletin, and a webcam link.
+3. 3D map: MapLibre GL with terrain, snowfall columns, and a 15-day snow field with a time slider. Also: a radar timeline, ski trails, avalanche zones, SNOTEL pins, freezing-level shading, falling snow, and a storm tour.
 
 ## Layout
 
 Static files, no build step, no backend, no API keys.
 
-1. `index.html`: page shell.
-2. `styles.css`: all styling, light and dark tokens.
-3. `core.js`: pure logic (time zones, accumulation, parsing, model spread, density estimate). No DOM.
-4. `app.js`: data loading, routing, homepage, location pages, Methods page.
-5. `map.js`: the 3D map, loaded only when the map view opens.
+1. `index.html`, `styles.css`: the page shell and all styling.
+2. `core.js`: pure logic (time zones, accumulation, measured snow, quality, CSV, daily picks). No DOM.
+3. `locations.js`: the 32 locations, webcam links, and the model list. Shared by the site and the scripts.
+4. `app.js`: data loading, routing, the homepage, location pages, map controls, and the Methods page.
+5. `retro.js`: Start menu, ticker, sparkles, Skier of the Day, Fun Fact, and the guestbook.
+6. `map.js`: the 3D map, loaded only when the map opens.
+7. `data/`: lists you can edit (`skiers.csv`, `facts.csv`, `guestbook.json`) and generated data (`grid.json`, `model-ranking.json`).
+8. `scripts/` and `.github/workflows/data.yml`: the scheduled job. It rebuilds `data/grid.json` every 6 hours and `data/model-ranking.json` weekly.
+
+## Editing the fun stuff
+
+1. Skiers: add a row to `data/skiers.csv` (`first_name,last_name,nickname,home`).
+2. Fun facts: add a row to `data/facts.csv`. Wrap a fact in double quotes if it contains a comma.
+3. Guestbook: see `GUESTBOOK-SETUP.txt` in the hand-off folder, then fill in `data/guestbook.json`. Leave it blank to hide the guestbook.
 
 ## Run locally
 
@@ -28,12 +35,14 @@ python3 -m http.server 8765 --directory /tmp/site
 # open http://localhost:8765/weather/
 ```
 
-## Test
+## Test and data
 
 ```sh
 node --test test/core.test.mjs
+node scripts/build-grid.mjs      # about 5 minutes; Open-Meteo free-tier friendly
+node scripts/rank-models.mjs     # about 2 minutes
 ```
 
 ## Deploy
 
-GitHub Pages serves the repository root. Pushing to `main` publishes; there is nothing to build.
+GitHub Pages serves the repository root. The scheduled job needs Settings > Actions > General > Workflow permissions set to "Read and write".
