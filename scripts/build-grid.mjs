@@ -21,10 +21,13 @@ function points() {
 async function fetchChunk(pts) {
   const p = new URLSearchParams({latitude: pts.map(x => x.lat).join(','), longitude: pts.map(x => x.lon).join(','),
     hourly: 'snowfall,precipitation,freezing_level_height', forecast_days: '16', timezone: TZ, timeformat: 'unixtime'});
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    const r = await fetch(`https://api.open-meteo.com/v1/forecast?${p}`);
-    if (r.ok) { const j = await r.json(); return Array.isArray(j) ? j : [j]; }
-    log(`HTTP ${r.status}, attempt ${attempt}: ${(await r.text()).slice(0, 160)}`);
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    // Retry both HTTP errors and dropped connections; a single network blip must not fail the run.
+    try {
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?${p}`, {signal: AbortSignal.timeout(60000)});
+      if (r.ok) { const j = await r.json(); return Array.isArray(j) ? j : [j]; }
+      log(`HTTP ${r.status}, attempt ${attempt}: ${(await r.text()).slice(0, 160)}`);
+    } catch (e) { log(`Network error, attempt ${attempt}: ${e.cause?.code || e.message}`); }
     await sleep(attempt * 30000);
   }
   throw new Error('Open-Meteo request failed after retries');

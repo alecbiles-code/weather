@@ -26,10 +26,13 @@ function windows(today = localDate()) {
   return out;
 }
 async function getJSON(url) {
-  for (let attempt = 1; attempt <= 4; attempt++) {
-    const r = await fetch(url);
-    if (r.ok) return r.json();
-    log(`HTTP ${r.status}, attempt ${attempt}: ${(await r.text()).slice(0, 160)}`);
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    // Retry both HTTP errors and dropped connections; a single network blip must not fail the run.
+    try {
+      const r = await fetch(url, {signal: AbortSignal.timeout(60000)});
+      if (r.ok) return r.json();
+      log(`HTTP ${r.status}, attempt ${attempt}: ${(await r.text()).slice(0, 160)}`);
+    } catch (e) { log(`Network error, attempt ${attempt}: ${e.cause?.code || e.message}`); }
     await sleep(attempt * 30000);
   }
   throw new Error(`Request failed: ${url.slice(0, 120)}`);
