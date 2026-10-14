@@ -1,1 +1,36 @@
-
+name: Refresh forecast data
+# Rebuilds data/grid.json (map snow field) every 6 hours and data/model-ranking.json weekly.
+# Needs Settings > Actions > General > Workflow permissions set to "Read and write".
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+    - cron: '41 9 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build snow grid
+        run: node scripts/build-grid.mjs
+      - name: Rank models
+        if: github.event.schedule == '41 9 * * 1' || github.event_name == 'workflow_dispatch'
+        run: node scripts/rank-models.mjs
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/grid.json data/model-ranking.json
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "Refresh forecast data"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push
