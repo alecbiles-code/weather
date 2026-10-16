@@ -43,7 +43,7 @@
 }
 
 /* ---- Bevels: the whole look is these three ---- */
-.win, .btn, .icon-btn, .segmented button, .start, .tasks a, .taskbar, .start-menu, .toast, .badge, .title-btns i, .data-table thead th {
+.win, .btn, .icon-btn, .segmented button, .start, .tasks a, .taskbar, .start-menu, .toast, .badge, .title-btns i, .data-table thead th, .timebar {
   box-shadow: inset -1px -1px var(--dk), inset 1px 1px var(--light), inset -2px -2px var(--lo), inset 2px 2px var(--hi);
 }
 .field, input[type="search"], input[type="text"], textarea, .matrix-scroll, .table-scroll, .map-stage, .map-list-wrap, .tray, .chart-field, .kpis > div, .picks > div, .prose, .guest-list, .statusbar > * {
@@ -165,6 +165,7 @@ input[type="search"], input[type="text"], textarea { border: 0; background: var(
 /* ---- Toolbar ---- */
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; }
 .toolbar .label { color: var(--muted); font-size: 12px; }
+.tool-group { display: inline-flex; align-items: center; gap: 6px; }
 .search { position: relative; display: flex; align-items: center; color: var(--dim); }
 .search .icon { position: absolute; left: 8px; pointer-events: none; }
 .search input { width: 220px; padding-left: 28px; }
@@ -203,11 +204,14 @@ input[type="search"], input[type="text"], textarea { border: 0; background: var(
 .matrix .total { min-width: 60px; text-align: right; padding-right: 10px; font-weight: 700; }
 .matrix .total.first { border-left: 2px solid var(--lo); }
 .matrix .qual { min-width: 76px; text-align: center; }
+.matrix.summary .total.first { border-left: 1px solid var(--lo); }
+.matrix.summary { min-width: 0; }
 .matrix .storm { height: 32px; vertical-align: bottom; }
 .storm-bar { position: absolute; left: 8px; right: 8px; bottom: 0; height: calc(var(--h) * 24px); background: var(--select); opacity: 0.55; }
 .storm-n { position: relative; display: block; font-size: 11px; font-weight: 700; padding-bottom: 2px; }
 .storm-label { display: block; padding: 0 10px; font-size: 11px; color: var(--muted); }
-.matrix tbody th.name-cell { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 2px; height: 40px; font-weight: 400; }
+.matrix tbody th.name-cell { font-weight: 400; } /* stays display: table-cell; Safari drops position: sticky on flex cells */
+.name-wrap { display: flex; align-items: center; gap: 2px; padding: 0 4px 0 2px; height: 40px; }
 .matrix tbody th.name-cell a { color: var(--ink); text-decoration: none; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; padding: 3px 2px; }
 .matrix tbody th.name-cell a:hover .loc-name, .matrix tbody th.name-cell a:focus-visible .loc-name { color: var(--link); text-decoration: underline; }
 .loc-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -339,7 +343,7 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
 
 /* ---- Map ---- */
 .map-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
-.map-stage { position: relative; overflow: hidden; background: var(--field); min-height: 520px; height: calc(100dvh - 200px); }
+.map-stage { position: relative; overflow: hidden; background: var(--field); min-height: 460px; height: calc(100dvh - 370px); } /* fits between the banner and the taskbar, so the timeline bar stays on screen */
 .map-canvas { position: absolute; inset: 2px; }
 .map-canvas.maplibregl-map { position: absolute; } /* MapLibre sets relative, which would collapse the height */
 .map-fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink); background: var(--field); z-index: 2; }
@@ -376,6 +380,21 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
 .pop-val { font: 400 1.3rem/1.1 var(--display); }
 .pop-sub { font-size: 11px; color: var(--muted); }
 .pop a { margin-top: 4px; }
+
+/* Timeline bar along the bottom of the map: long sliders for precise scrubbing. */
+.timebar { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 3; background: var(--face); padding: 5px 10px 4px; }
+.tb-row { display: flex; align-items: center; gap: 8px; }
+.tb-name { font-weight: 700; width: 46px; flex: none; }
+.tb-track { flex: 1; min-width: 0; }
+.tb-track input[type="range"] { width: 100%; margin: 4px 0 0; }
+.tb-ticks { position: relative; height: 14px; font-size: 10px; color: var(--muted); }
+.tb-ticks span { position: absolute; top: 0; white-space: nowrap; }
+.tb-ticks span:first-child { left: 0; }
+.tb-ticks span:last-child { right: 0; }
+.tb-ticks .tb-now { transform: translateX(-50%); font-weight: 700; color: var(--ink); }
+.tb-label { font-weight: 700; font-size: 12px; margin: 0 0 3px; padding-left: 90px; min-height: 16px; }
+#radarRow { border-top: 1px solid var(--lo); margin-top: 3px; padding-top: 3px; }
+.legend.ramp { margin-left: 0; }
 
 /* ---- Guestbook ---- */
 .guest-form { display: grid; grid-template-columns: 200px 1fr auto; gap: 8px; align-items: end; }
@@ -471,7 +490,10 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
   .toolbar .search { flex: 1 1 100%; }
   .matrix .name-cell { min-width: 128px; max-width: 128px; }
   .loc-sub { display: none; }
-  .matrix tbody th.name-cell, .matrix td.cell { height: 38px; }
+  .name-wrap, .matrix td.cell { height: 38px; }
+  .matrix.summary .total { min-width: 52px; padding-right: 6px; }
+  .matrix.summary .qual { min-width: 62px; }
+  .matrix.summary thead th.total button { padding-right: 6px; }
   .matrix th.day, .matrix td.cell, .matrix td.storm { min-width: 36px; width: 36px; }
   .matrix-scroll { max-height: none; }
   .bars { gap: 1px; height: 160px; }
@@ -483,6 +505,9 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
   .tasks a .icon { display: none; }
   .tray .opt { display: none; }
   .layer-list { grid-template-columns: 1fr; }
+  .timebar { left: 4px; right: 4px; bottom: 4px; padding: 4px 6px 3px; }
+  .tb-name { width: 38px; font-size: 11px; }
+  .tb-label { padding-left: 0; font-size: 11px; }
   .resort-head h1 { font-size: 1.7rem; }
 }
 @media (prefers-reduced-motion: reduce) {
