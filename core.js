@@ -191,6 +191,7 @@ export function measuredDay(station, date) {
 
 /* ---- Small CSV reader for the owner-edited lists in data/ ---- */
 export function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, ''); // some editors add a byte-order mark, which would rename the first column
   const rows = [];
   let row = [], field = '', quoted = false;
   for (let i = 0; i < text.length; i++) {
@@ -239,6 +240,13 @@ export function containsPoint(feature, point) {
   return g?.type === 'Polygon' ? pointInPolygon(point, g.coordinates) : g?.type === 'MultiPolygon' ? g.coordinates.some(p => pointInPolygon(point, p)) : false;
 }
 
-/* ---- Color bins for snowfall, in cm so both unit systems share colors. ---- */
+/* ---- Map snowfall colors (inches), the common NWS/OpenSnow breaks. scripts/build_hires.py uses the same list. ---- */
+export const SNOW_RAMP = [[0.1, '#c0d8e6'], [1, '#66abd3'], [3, '#00278f'], [6, '#eeef92'], [8, '#fcc80f'], [10, '#ff8300'],
+  [12, '#db1c00'], [18, '#9e0101'], [24, '#750000'], [30, '#c9c8fb'], [36, '#9c8bd6'], [48, '#805daa'], [60, '#56226f'], [72, '#340439'], [100, '#3fe1ff']];
+/** Radar reflectivity colors (dBZ), NWS standard; the HRRR forecast frames use the same list. */
+export const RADAR_RAMP = [[10, '#019ff4'], [15, '#0300f4'], [20, '#02fd02'], [25, '#01c501'], [30, '#008e00'], [35, '#fdf802'],
+  [40, '#e5bc00'], [45, '#fd9500'], [50, '#fd0000'], [55, '#d40000'], [60, '#bc0000'], [65, '#f800fd'], [70, '#9854c6']];
+
+/* ---- Table color bins for snowfall, in cm so both unit systems share colors. ---- */
 export const BIN_EDGES_CM = [0.25, 2.54, 7.62, 15.24, 25.4, 38.1, 60.96]; // 0.1, 1, 3, 6, 10, 15, 24 in
 export function binIndex(cm) { if (!finite(cm)) return null; let i = 0; while (i < BIN_EDGES_CM.length && cm >= BIN_EDGES_CM[i]) i++; return i; }
