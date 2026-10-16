@@ -2,6 +2,10 @@
 // hourly precipitation for the next 48 hours, and a statewide freezing level per day.
 // Run by .github/workflows/data.yml every 6 hours. By hand: node scripts/build-grid.mjs
 import {writeFile, mkdir} from 'node:fs/promises';
+import {pathToFileURL} from 'node:url';
+
+// Output directory: first argument, or data/ next to the site for local runs.
+const OUT = process.argv[2] ? pathToFileURL(process.argv[2].replace(/\/?$/, '/')) : new URL('../data/', import.meta.url);
 import {HOUR, TZ, localDate, shiftDate, dailyTotal, dayBounds, normalizeForecast, finite} from '../core.js';
 
 const GRID = {west: -109.0, east: -102.0, south: 37.0, north: 41.0, step: 0.2};
@@ -25,7 +29,7 @@ async function fetchChunk(pts) {
     // Retry both HTTP errors and dropped connections; a single network blip must not fail the run.
     try {
       const r = await fetch(`https://api.open-meteo.com/v1/forecast?${p}`, {signal: AbortSignal.timeout(60000)});
-      if (r.ok) { const j = await r.json(); return Array.isArray(j) ? j : [j]; }
+      if (r.ok) { const j = await r.json(); return Array.isArray(j) ? j : [j]; } // a garbled body throws here and is retried
       log(`HTTP ${r.status}, attempt ${attempt}: ${(await r.text()).slice(0, 160)}`);
     } catch (e) { log(`Network error, attempt ${attempt}: ${e.cause?.code || e.message}`); }
     await sleep(attempt * 30000);
@@ -59,8 +63,8 @@ async function main() {
   const out = {generatedAt: new Date().toISOString(), source: 'Open-Meteo forecast API, best_match', grid: {...GRID, cols, rows},
     units: {daily: 'tenths of cm, calendar day in America/Denver', precip: 'tenths of mm in the hour ending at each time', freezingLevelM: 'meters'},
     days, daily, hours: hours.map(t => t / 1000), precip, freezingLevelM: freezing.map(f => { const m = median(f); return finite(m) ? Math.round(m) : null; })};
-  await mkdir(new URL('../data/', import.meta.url), {recursive: true});
-  await writeFile(new URL('../data/grid.json', import.meta.url), JSON.stringify(out));
+  await mkdir(OUT, {recursive: true});
+  await writeFile(new URL('grid.json', OUT), JSON.stringify(out));
   log(`wrote data/grid.json: ${cols}x${rows} points, ${DAYS} days, ${HOURS} hours`);
 }
 main().catch(e => { console.error(e); process.exit(1); });
