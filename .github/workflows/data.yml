@@ -1,9 +1,12 @@
 name: Refresh forecast data
-# Rebuilds data/grid.json (map snow field) every 6 hours and data/model-ranking.json weekly.
+# Every 6 hours: the coarse statewide grid (grid.json) and the high-resolution map frames (hires/).
+# Weekly: the model scoreboard (model-ranking.json).
+# Everything is published to the "data" branch, which is overwritten each run so the repo
+# history does not grow. The site reads it from raw.githubusercontent.com.
 # Needs Settings > Actions > General > Workflow permissions set to "Read and write".
 on:
   schedule:
-    - cron: '17 */6 * * *'
+    - cron: '17 2,8,14,20 * * *'
     - cron: '41 9 * * 1'
   workflow_dispatch:
 permissions:
@@ -14,23 +17,37 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
-      - name: Build snow grid
-        run: node scripts/build-grid.mjs
-      - name: Rank models
-        if: github.event.schedule == '41 9 * * 1' || github.event_name == 'workflow_dispatch'
-        run: node scripts/rank-models.mjs
-      - name: Commit data
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install map-frame tools
+        run: pip install --quiet numpy pillow scipy h5py eccodes
+      - name: Start from the last published data
         run: |
+          mkdir -p out
+          if git fetch --depth 1 origin data; then git --work-tree=out checkout origin/data -- . ; fi
+          ls out
+      - name: Build coarse snow grid
+        run: node scripts/build-grid.mjs out
+      - name: Rank models (weekly, or when run by hand)
+        if: github.event.schedule == '41 9 * * 1' || github.event_name == 'workflow_dispatch'
+        run: node scripts/rank-models.mjs out
+      - name: Build high-resolution map frames
+        run: |
+          rm -rf out/hires
+          python scripts/build_hires.py out
+      - name: Publish to the data branch
+        run: |
+          cd out
+          git init --quiet --initial-branch=data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/grid.json data/model-ranking.json
-          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
-          git commit -m "Refresh forecast data"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push
+          git add -A
+          git commit --quiet -m "Forecast data $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push --force --quiet "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
