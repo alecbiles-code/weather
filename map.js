@@ -1,7 +1,7 @@
 // MapLibre GL 3D map: keyless basemap and terrain, snowfall columns and field, radar timeline,
 // avalanche zones, SNOTEL pins, ski trails, freezing-level shading, falling snow, storm tour.
 // Loaded on demand so the homepage never pays for the map library.
-import {parseProviderDate, finite, binIndex} from './core.js';
+import {parseProviderDate, finite, SNOW_RAMP} from './core.js';
 
 const VERSION = '5.24.0';
 const CDN = `https://unpkg.com/maplibre-gl@${VERSION}/dist/`;
@@ -15,13 +15,10 @@ const DEM = {type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-til
 const TRAILS = {type: 'vector', url: 'https://tiles.openskimap.org/openskimap.json'};
 const RADAR_TILE = stamp => `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-${stamp}/{z}/{x}/{y}.png`;
 const HOME = {center: [-106.55, 38.95], pitch: 60, bearing: -14};
-// Same sequential ramp as the snowfall table, indexed by binIndex().
-const RAMP = ['#d9dee4', '#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
-const PRECIP = [[1, '#04e9e7'], [5, '#019ff4'], [10, '#02fd02'], [25, '#fdf802'], [50, '#fd9500'], [100, '#fd0000']]; // tenths of a mm per hour
 const DANGER = ['#9aa5b1', '#5bb85b', '#f2d649', '#f39a3c', '#d9372b', '#1c1c1c'];
 const M_PER_CM = 650; // column height exaggeration: 1 cm of snow draws as 650 m
 
-let map = null, opts = null, popup = null, snowCanvas = null, paused = false, tourToken = 0, fieldKey = '', precipKey = '', radarKey = '';
+let map = null, opts = null, popup = null, snowCanvas = null, paused = false, tourToken = 0, radarKey = '';
 
 function loadLibrary() {
   if (window.maplibregl) return Promise.resolve();
@@ -35,7 +32,6 @@ function loadLibrary() {
 }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const homeCamera = el => ({...HOME, zoom: Math.min(8.6, Math.max(6.4, Math.log2(121658 * el.clientWidth / 480000)))});
-const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 
 /* ---- GeoJSON builders ---- */
 function disc(lon, lat, km = 3.6) {
@@ -49,7 +45,7 @@ function disc(lon, lat, km = 3.6) {
 function locationCollections() {
   const columns = [], points = [];
   for (const f of opts.features) {
-    const props = {id: f.loc.id, name: f.loc.name, label: f.label, bin: binIndex(f.v) ?? -1, height: finite(f.v) ? Math.max(60, f.v * M_PER_CM) : 30};
+    const props = {id: f.loc.id, name: f.loc.name, label: f.label, inches: finite(f.v) ? f.v / 2.54 : -1, height: finite(f.v) ? Math.max(60, f.v * M_PER_CM) : 30};
     columns.push({type: 'Feature', properties: props, geometry: {type: 'Polygon', coordinates: disc(f.loc.lon, f.loc.lat)}});
     points.push({type: 'Feature', properties: props, geometry: {type: 'Point', coordinates: [f.loc.lon, f.loc.lat]}});
   }
@@ -68,46 +64,19 @@ function snotelCollection() {
     properties: {name: s.name || s.triplet, depth: finite(s.depthIn) ? (opts.unit === 'in' ? `${s.depthIn} in deep` : `${Math.round(s.depthIn * 2.54)} cm deep`) : 'no depth'}}))};
 }
 
-/* ---- Raster images drawn from data/grid.json ---- */
-function gridImage(values, colorFor) {
-  const g = opts.grid.grid, small = document.createElement('canvas');
-  small.width = g.cols; small.height = g.rows;
-  const ctx = small.getContext('2d'), img = ctx.createImageData(g.cols, g.rows);
-  values.forEach((v, i) => { const c = colorFor(v); if (c) img.data.set(c, i * 4); });
-  ctx.putImageData(img, 0, 0);
-  const big = document.createElement('canvas'); // upscale with smoothing so the field reads as a surface, not blocks
-  big.width = g.cols * 12; big.height = g.rows * 12;
-  const bctx = big.getContext('2d');
-  bctx.imageSmoothingEnabled = true; bctx.imageSmoothingQuality = 'high';
-  bctx.drawImage(small, 0, 0, big.width, big.height);
-  return big.toDataURL('image/png');
-}
-function gridCorners() {
-  const g = opts.grid.grid, h = g.step / 2;
-  return [[g.west - h, g.north + h], [g.east + h, g.north + h], [g.east + h, g.south - h], [g.west - h, g.south - h]];
-}
-function fieldValues() {
-  const {daily} = opts.grid, {day, accum} = opts.gridSel;
-  return daily[0].map((_, i) => {
-    let sum = 0;
-    for (let k = accum ? 0 : day; k <= day; k++) { const v = daily[k]?.[i]; if (v === null || v === undefined) return null; sum += v / 10; }
-    return sum;
-  });
-}
-// Trace amounts fade out so the field does not wash over the whole state.
-const snowColor = cm => { if (!finite(cm) || cm < 0.25) return null; const b = binIndex(cm); return [...hex(RAMP[b]), b <= 1 ? 70 : b === 2 ? 150 : 200]; };
-const precipColor = t => { if (!finite(t) || t < PRECIP[0][0]) return null; const c = [...PRECIP].reverse().find(([min]) => t >= min)[1]; return [...hex(c), 200]; };
+/* ---- High-resolution frames from the scheduled job (hires/), draped as images ---- */
+function corners() { const [w, so, e, n] = opts.hires.bounds; return [[w, n], [e, n], [e, so], [w, so]]; }
 function setImage(id, url) {
   const src = map.getSource(id);
-  if (src) src.updateImage({url, coordinates: gridCorners()});
-  else map.addSource(id, {type: 'image', url, coordinates: gridCorners()});
+  if (src) src.updateImage({url, coordinates: corners()});
+  else map.addSource(id, {type: 'image', url, coordinates: corners()});
 }
 
 /* ---- Layers ---- */
 function firstSymbolId() { return map.getStyle().layers.find(l => l.type === 'symbol')?.id; }
 function addOverlays() {
   const dark = opts.theme === 'dark', below = firstSymbolId();
-  fieldKey = precipKey = radarKey = '';
+  radarKey = '';
   if (!map.getSource('dem')) map.addSource('dem', DEM);
   if (!map.getSource('dem-shade')) map.addSource('dem-shade', DEM);
   if (!map.getSource('dem-relief')) map.addSource('dem-relief', DEM);
@@ -127,7 +96,7 @@ function addOverlays() {
   map.addSource('snow-columns', {type: 'geojson', data: columns, promoteId: 'id'});
   map.addSource('snow-points', {type: 'geojson', data: points, promoteId: 'id'});
   map.addLayer({id: 'snow-columns', type: 'fill-extrusion', source: 'snow-columns', paint: {
-    'fill-extrusion-color': ['step', ['get', 'bin'], dark ? '#4b5563' : '#9aa5b1', ...RAMP.flatMap((c, i) => [i, c])],
+    'fill-extrusion-color': ['step', ['get', 'inches'], dark ? '#4b5563' : '#9aa5b1', ...SNOW_RAMP.flatMap(([v, c]) => [v, c])],
     // Statewide view: tall columns. Zoomed into a resort: short and see-through so trails and terrain show.
     'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 8, ['get', 'height'], 10.5, ['*', ['get', 'height'], 0.2]], 'fill-extrusion-base': 0,
     'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 8.5, 0.92, 10.5, 0.35],
@@ -160,37 +129,29 @@ function applyData() {
   vis('snotel-dots', L.snotel); vis('snotel-labels', L.snotel);
   vis('freezing', L.freezing && finite(opts.freezingM));
   if (finite(opts.freezingM)) map.setPaintProperty('freezing', 'color-relief-color', reliefColor(opts.freezingM));
-  // Snow field from the scheduled grid.
-  const showField = L.field && opts.grid && opts.gridSel;
-  if (showField) {
-    const key = `${opts.grid.generatedAt}:${opts.gridSel.day}:${opts.gridSel.accum}`;
-    if (key !== fieldKey) { setImage('snow-field', gridImage(fieldValues(), snowColor)); fieldKey = key; }
-    addRaster('snow-field', 'snow-field', 0.75, 'trail-runs');
-  }
+  // Snow field: observed (NOHRSC) left of now, forecast (NBM) right of now.
+  const f = opts.snowFrame, showField = L.field && opts.hires && f?.file;
+  if (showField) { setImage('snow-field', opts.hires.base + f.file); addRaster('snow-field', 'snow-field', 0.78, 'trail-runs'); }
   vis('snow-field', showField);
-  // Radar timeline: observed tiles for the past, model precipitation image for the future.
-  const f = L.radar ? opts.radarFrame : null;
-  if (f?.kind === 'radar') {
-    const d = new Date(f.t), stamp = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  // Radar timeline: observed NEXRAD tiles for the past, HRRR simulated radar images for the future.
+  const r = L.radar ? opts.radarFrame : null;
+  if (r?.kind === 'radar') {
+    const d = new Date(r.t), stamp = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}`;
     if (!map.getSource('radar')) map.addSource('radar', {type: 'raster', tiles: [RADAR_TILE(stamp)], tileSize: 256, maxzoom: 8, attribution: 'Radar: <a href="https://mesonet.agron.iastate.edu/">Iowa Environmental Mesonet</a>'});
     else if (stamp !== radarKey) map.getSource('radar').setTiles([RADAR_TILE(stamp)]);
     radarKey = stamp;
     addRaster('radar', 'radar', 0.7, 'avalanche-fill');
   }
-  vis('radar', f?.kind === 'radar');
-  if (f?.kind === 'model' && opts.grid?.precip?.[f.index]) {
-    const key = `${opts.grid.generatedAt}:${f.index}`;
-    if (key !== precipKey) { setImage('precip-field', gridImage(opts.grid.precip[f.index], precipColor)); precipKey = key; }
-    addRaster('precip-field', 'precip-field', 0.7, 'avalanche-fill');
-  }
-  vis('precip-field', f?.kind === 'model');
+  vis('radar', r?.kind === 'radar');
+  if (r?.kind === 'model' && opts.hires) { setImage('radar-model', opts.hires.base + r.file); addRaster('radar-model', 'radar-model', 0.75, 'avalanche-fill'); }
+  vis('radar-model', r?.kind === 'model' && !!opts.hires);
 }
 
 /* ---- Falling snow over locations with at least 1 in in the selected window ---- */
 let flakes = [], fxFrame = null;
 function seedFlakes() {
   flakes = [];
-  if (!opts.gridSel) return;
+  if (opts.snowFrame?.kind !== 'future') return;
   for (const f of opts.features) {
     if (!finite(f.v) || f.v < 2.54) continue;
     const n = Math.min(45, Math.round(f.v / 2.54 * 5));
@@ -241,7 +202,8 @@ export async function mountMap(container, canvas, options) {
   window.__powcastMap = () => map; // for automated checks only
   opts = options; snowCanvas = canvas;
   await loadLibrary();
-  map = new maplibregl.Map({container, style: STYLES[opts.theme], ...homeCamera(container), maxPitch: 75, attributionControl: {compact: true}, canvasContextAttributes: {antialias: true}});
+  map = new maplibregl.Map({container, style: STYLES[opts.theme], ...homeCamera(container), maxPitch: 75, attributionControl: false, canvasContextAttributes: {antialias: true}});
+  map.addControl(new maplibregl.AttributionControl({compact: true}), 'top-left'); // bottom edge holds the timeline bar
   map.addControl(new maplibregl.NavigationControl({visualizePitch: true}), 'top-right');
   map.addControl(new maplibregl.FullscreenControl(), 'top-right');
   map.addControl(new maplibregl.TerrainControl({source: 'dem', exaggeration: 1.35}), 'top-right');
