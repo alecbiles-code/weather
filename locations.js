@@ -69,21 +69,22 @@ const WEBCAMS = {
 export const LOCS = ORIGINAL_LOCATIONS.map(l => ({...l, id: l.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), url: LINKS[l.name] || null, webcam: WEBCAMS[l.name] || null}));
 
 // Open-Meteo model ids verified against Colorado coordinates on 2026-10-14.
+// km: grid spacing from Open-Meteo's model documentation (checked 2026-10-15).
 // Excluded: ids that return no snowfall here (GraphCast, BOM ACCESS, KMA) and regional
 // "seamless" ids that silently fall back to ECMWF outside Europe (MET Norway, KNMI, DMI).
 export const MODELS = [
-  {id: 'ncep_hrrr_conus', name: 'HRRR', org: 'NOAA', kind: 'High-res regional', note: '3 km, about 48 h', about: "NOAA's 3 km model, rerun every hour. Sees individual ridges and storm timing best, but only 2 days out."},
-  {id: 'ncep_nam_conus', name: 'NAM', org: 'NOAA', kind: 'High-res regional', note: '3 km CONUS nest, 60 h', about: "NOAA's other 3 km model. Similar detail to HRRR, updated every 6 hours, 2.5 days out."},
-  {id: 'cmc_gem_rdps', name: 'GEM Regional', org: 'Environment Canada', kind: 'Regional', note: 'RDPS, about 3.5 days', about: "Canada's regional model. Mid-resolution view of the next 3 to 4 days."},
-  {id: 'ncep_nbm_conus', name: 'NBM', org: 'NOAA', kind: 'Statistical blend', note: 'National Blend of Models, 2.5 km', about: "NOAA's blend of many models with bias correction; the National Weather Service's starting point. Its snowfall uses variable snow ratios, so it often reads higher."},
-  {id: 'ncep_gfs_global', name: 'GFS', org: 'NOAA', kind: 'Global', note: '16 days', about: "NOAA's flagship global model. The workhorse for days 3 to 16."},
-  {id: 'ecmwf_ifs', name: 'ECMWF IFS', org: 'ECMWF', kind: 'Global', note: 'HRES 9 km, 15 days', about: "The European model at 9 km. Usually the most accurate global model in published verification."},
-  {id: 'ecmwf_aifs025_single', name: 'ECMWF AIFS', org: 'ECMWF', kind: 'Global AI', note: 'Machine-learning model, 0.25°', about: "ECMWF's machine-learning model, trained on decades of its own analyses."},
-  {id: 'dwd_icon_global', name: 'ICON', org: 'DWD Germany', kind: 'Global', note: 'About 7.5 days', about: "Germany's global model."},
-  {id: 'cmc_gem_gdps', name: 'GEM Global', org: 'Environment Canada', kind: 'Global', note: 'GDPS, 10 days', about: "Canada's global model."},
-  {id: 'ukmo_global_deterministic_10km', name: 'UKMO', org: 'UK Met Office', kind: 'Global', note: '10 km, about 7 days', about: "The UK Met Office global model at 10 km."},
-  {id: 'jma_gsm', name: 'JMA GSM', org: 'Japan Meteorological Agency', kind: 'Global', note: 'About 11 days', about: "Japan's global model. Coarse grid, so mountains are smoothed out."},
-  {id: 'meteofrance_arpege_world', name: 'ARPEGE', org: 'Météo-France', kind: 'Global', note: 'About 4 days', about: "Meteo-France's global model, 4 days out."},
-  {id: 'cma_grapes_global', name: 'CMA GRAPES', org: 'China Meteorological Administration', kind: 'Global', note: 'About 5 days', about: "China's global model, about 5 days out."},
-  {id: 'ncep_aigfs025', name: 'AIGFS', org: 'NOAA', kind: 'Global AI', note: 'Machine-learning GFS, 0.25°, 16 days', about: "NOAA's machine-learning version of GFS."},
+  {id: 'ncep_hrrr_conus', km: 3, name: 'HRRR', org: 'NOAA', kind: 'High-res regional', note: '3 km, about 48 h', about: "NOAA's 3 km model, rerun every hour. Sees individual ridges and storm timing best, but only 2 days out."},
+  {id: 'ncep_nam_conus', km: 3, name: 'NAM', org: 'NOAA', kind: 'High-res regional', note: '3 km CONUS nest, 60 h', about: "NOAA's other 3 km model. Similar detail to HRRR, updated every 6 hours, 2.5 days out."},
+  {id: 'cmc_gem_rdps', km: 10, name: 'GEM Regional', org: 'Environment Canada', kind: 'Regional', note: 'RDPS, about 3.5 days', about: "Canada's regional model. Mid-resolution view of the next 3 to 4 days."},
+  {id: 'ncep_nbm_conus', km: 2.5, name: 'NBM', org: 'NOAA', kind: 'Statistical blend', note: 'National Blend of Models, 2.5 km', about: "NOAA's blend of many models with bias correction; the National Weather Service's starting point. Its snowfall uses variable snow ratios, so it often reads higher."},
+  {id: 'ncep_gfs_global', km: 13, name: 'GFS', org: 'NOAA', kind: 'Global', note: '16 days', about: "NOAA's flagship global model. The workhorse for days 3 to 16."},
+  {id: 'ecmwf_ifs', km: 9, name: 'ECMWF IFS', org: 'ECMWF', kind: 'Global', note: 'HRES 9 km, 15 days', about: "The European model at 9 km. Usually the most accurate global model in published verification."},
+  {id: 'ecmwf_aifs025_single', km: 28, name: 'ECMWF AIFS', org: 'ECMWF', kind: 'Global AI', note: 'Machine-learning model, 0.25°', about: "ECMWF's machine-learning model, trained on decades of its own analyses."},
+  {id: 'dwd_icon_global', km: 11, name: 'ICON', org: 'DWD Germany', kind: 'Global', note: 'About 7.5 days', about: "Germany's global model."},
+  {id: 'cmc_gem_gdps', km: 15, name: 'GEM Global', org: 'Environment Canada', kind: 'Global', note: 'GDPS, 10 days', about: "Canada's global model."},
+  {id: 'ukmo_global_deterministic_10km', km: 10, name: 'UKMO', org: 'UK Met Office', kind: 'Global', note: '10 km, about 7 days', about: "The UK Met Office global model at 10 km."},
+  {id: 'jma_gsm', km: 55, name: 'JMA GSM', org: 'Japan Meteorological Agency', kind: 'Global', note: 'About 11 days', about: "Japan's global model. Coarse grid, so mountains are smoothed out."},
+  {id: 'meteofrance_arpege_world', km: 25, name: 'ARPEGE', org: 'Météo-France', kind: 'Global', note: 'About 4 days', about: "Meteo-France's global model, 4 days out."},
+  {id: 'cma_grapes_global', km: 15, name: 'CMA GRAPES', org: 'China Meteorological Administration', kind: 'Global', note: 'About 5 days', about: "China's global model, about 5 days out."},
+  {id: 'ncep_aigfs025', km: 25, name: 'AIGFS', org: 'NOAA', kind: 'Global AI', note: 'Machine-learning GFS, 0.25°, 16 days', about: "NOAA's machine-learning version of GFS."},
 ];
