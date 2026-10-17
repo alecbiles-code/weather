@@ -1,0 +1,502 @@
+{
+ "generatedAt": "2026-10-16T17:36:16.528Z",
+ "windows": [
+  {
+   "start": "2024-12-01",
+   "end": "2025-03-31"
+  },
+  {
+   "start": "2025-12-01",
+   "end": "2026-03-31"
+  }
+ ],
+ "stations": 24,
+ "method": "Daily liquid precipitation forecast 1 and 3 days ahead (Open-Meteo Previous Runs API) at each SNOTEL station, compared with the station precipitation gauge. Ranked by equitable threat score for storm days (5 mm of water, roughly 2 to 3 in of snow): it rewards catching storms and penalizes false alarms, and unlike average error it does not favor smooth, under-forecasting models. Wet-day error is mean absolute error on days where either side reached 0.5 mm. Bias is total forecast versus total measured. Gauges undercatch snow, which affects every model equally.",
+ "leads": {
+  "day1": [
+   {
+    "id": "ncep_nbm_conus",
+    "name": "NBM",
+    "days": 5686,
+    "wetDays": 2860,
+    "maeWetMm": 3.12,
+    "biasPct": 0,
+    "ets": 0.427,
+    "caught": 0.61,
+    "falseAlarms": 0.26,
+    "etsRange": [
+     0.404,
+     0.453
+    ],
+    "coverage": 0.98,
+    "rank": 1,
+    "tiedWithBest": true
+   },
+   {
+    "id": "cmc_gem_rdps",
+    "name": "GEM Regional",
+    "days": 5686,
+    "wetDays": 2989,
+    "maeWetMm": 3.54,
+    "biasPct": 14,
+    "ets": 0.401,
+    "caught": 0.6,
+    "falseAlarms": 0.3,
+    "etsRange": [
+     0.38,
+     0.431
+    ],
+    "coverage": 0.98,
+    "rank": 2,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ncep_gfs_global",
+    "name": "GFS",
+    "days": 5686,
+    "wetDays": 2844,
+    "maeWetMm": 3.33,
+    "biasPct": -9,
+    "ets": 0.4,
+    "caught": 0.56,
+    "falseAlarms": 0.26,
+    "etsRange": [
+     0.378,
+     0.425
+    ],
+    "coverage": 0.98,
+    "rank": 3,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ecmwf_aifs025_single",
+    "name": "ECMWF AIFS",
+    "days": 3869,
+    "wetDays": 2058,
+    "maeWetMm": 2.74,
+    "biasPct": -25,
+    "ets": 0.394,
+    "caught": 0.51,
+    "falseAlarms": 0.21,
+    "etsRange": [
+     0.365,
+     0.426
+    ],
+    "coverage": 0.67,
+    "rank": 4,
+    "tiedWithBest": true
+   },
+   {
+    "id": "dwd_icon_global",
+    "name": "ICON",
+    "days": 5686,
+    "wetDays": 2869,
+    "maeWetMm": 3.23,
+    "biasPct": -14,
+    "ets": 0.388,
+    "caught": 0.54,
+    "falseAlarms": 0.25,
+    "etsRange": [
+     0.366,
+     0.413
+    ],
+    "coverage": 0.98,
+    "rank": 5,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ecmwf_ifs",
+    "name": "ECMWF IFS",
+    "days": 2904,
+    "wetDays": 1313,
+    "maeWetMm": 2.97,
+    "biasPct": -19,
+    "ets": 0.373,
+    "caught": 0.5,
+    "falseAlarms": 0.25,
+    "etsRange": [
+     0.338,
+     0.408
+    ],
+    "coverage": 0.5,
+    "rank": 6,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ukmo_global_deterministic_10km",
+    "name": "UKMO",
+    "days": 4858,
+    "wetDays": 2228,
+    "maeWetMm": 3.4,
+    "biasPct": -19,
+    "ets": 0.366,
+    "caught": 0.51,
+    "falseAlarms": 0.25,
+    "etsRange": [
+     0.339,
+     0.394
+    ],
+    "coverage": 0.84,
+    "rank": 7,
+    "tiedWithBest": false
+   },
+   {
+    "id": "cmc_gem_gdps",
+    "name": "GEM Global",
+    "days": 5686,
+    "wetDays": 2914,
+    "maeWetMm": 3.38,
+    "biasPct": -12,
+    "ets": 0.364,
+    "caught": 0.52,
+    "falseAlarms": 0.27,
+    "etsRange": [
+     0.342,
+     0.388
+    ],
+    "coverage": 0.98,
+    "rank": 8,
+    "tiedWithBest": false
+   },
+   {
+    "id": "ncep_hrrr_conus",
+    "name": "HRRR",
+    "days": 5686,
+    "wetDays": 2596,
+    "maeWetMm": 3.83,
+    "biasPct": -8,
+    "ets": 0.36,
+    "caught": 0.53,
+    "falseAlarms": 0.3,
+    "etsRange": [
+     0.335,
+     0.385
+    ],
+    "coverage": 0.98,
+    "rank": 9,
+    "tiedWithBest": false
+   },
+   {
+    "id": "meteofrance_arpege_world",
+    "name": "ARPEGE",
+    "days": 5686,
+    "wetDays": 2951,
+    "maeWetMm": 3.23,
+    "biasPct": -20,
+    "ets": 0.358,
+    "caught": 0.49,
+    "falseAlarms": 0.25,
+    "etsRange": [
+     0.336,
+     0.379
+    ],
+    "coverage": 0.98,
+    "rank": 10,
+    "tiedWithBest": false
+   },
+   {
+    "id": "cma_grapes_global",
+    "name": "CMA GRAPES",
+    "days": 5374,
+    "wetDays": 2665,
+    "maeWetMm": 3.36,
+    "biasPct": -34,
+    "ets": 0.32,
+    "caught": 0.42,
+    "falseAlarms": 0.21,
+    "etsRange": [
+     0.298,
+     0.342
+    ],
+    "coverage": 0.93,
+    "rank": 11,
+    "tiedWithBest": false
+   },
+   {
+    "id": "jma_gsm",
+    "name": "JMA GSM",
+    "days": 5682,
+    "wetDays": 3025,
+    "maeWetMm": 3.22,
+    "biasPct": -30,
+    "ets": 0.309,
+    "caught": 0.42,
+    "falseAlarms": 0.25,
+    "etsRange": [
+     0.286,
+     0.333
+    ],
+    "coverage": 0.98,
+    "rank": 12,
+    "tiedWithBest": false
+   },
+   {
+    "id": "ncep_nam_conus",
+    "name": "NAM",
+    "days": 1368,
+    "wetDays": 729,
+    "maeWetMm": 3.93,
+    "biasPct": 21,
+    "ets": 0.425,
+    "caught": 0.62,
+    "falseAlarms": 0.28,
+    "etsRange": [
+     0.374,
+     0.474
+    ],
+    "coverage": 0.24
+   },
+   {
+    "id": "ncep_aigfs025",
+    "name": "AIGFS",
+    "days": 1032,
+    "wetDays": 477,
+    "maeWetMm": 2.69,
+    "biasPct": -44,
+    "ets": 0.269,
+    "caught": 0.32,
+    "falseAlarms": 0.16,
+    "etsRange": [
+     0.207,
+     0.338
+    ],
+    "coverage": 0.18
+   }
+  ],
+  "day3": [
+   {
+    "id": "ecmwf_aifs025_single",
+    "name": "ECMWF AIFS",
+    "days": 3823,
+    "wetDays": 2069,
+    "maeWetMm": 2.95,
+    "biasPct": -22,
+    "ets": 0.337,
+    "caught": 0.47,
+    "falseAlarms": 0.28,
+    "etsRange": [
+     0.307,
+     0.37
+    ],
+    "coverage": 0.66,
+    "rank": 1,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ncep_gfs_global",
+    "name": "GFS",
+    "days": 5686,
+    "wetDays": 2913,
+    "maeWetMm": 3.71,
+    "biasPct": -13,
+    "ets": 0.326,
+    "caught": 0.49,
+    "falseAlarms": 0.32,
+    "etsRange": [
+     0.308,
+     0.352
+    ],
+    "coverage": 0.98,
+    "rank": 2,
+    "tiedWithBest": true
+   },
+   {
+    "id": "dwd_icon_global",
+    "name": "ICON",
+    "days": 5686,
+    "wetDays": 2961,
+    "maeWetMm": 3.57,
+    "biasPct": -11,
+    "ets": 0.321,
+    "caught": 0.49,
+    "falseAlarms": 0.33,
+    "etsRange": [
+     0.297,
+     0.345
+    ],
+    "coverage": 0.98,
+    "rank": 3,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ukmo_global_deterministic_10km",
+    "name": "UKMO",
+    "days": 3709,
+    "wetDays": 1631,
+    "maeWetMm": 3.59,
+    "biasPct": -18,
+    "ets": 0.319,
+    "caught": 0.46,
+    "falseAlarms": 0.33,
+    "etsRange": [
+     0.284,
+     0.346
+    ],
+    "coverage": 0.64,
+    "rank": 4,
+    "tiedWithBest": true
+   },
+   {
+    "id": "ncep_nbm_conus",
+    "name": "NBM",
+    "days": 5686,
+    "wetDays": 3071,
+    "maeWetMm": 3.46,
+    "biasPct": -15,
+    "ets": 0.306,
+    "caught": 0.49,
+    "falseAlarms": 0.36,
+    "etsRange": [
+     0.284,
+     0.331
+    ],
+    "coverage": 0.98,
+    "rank": 5,
+    "tiedWithBest": true
+   },
+   {
+    "id": "cmc_gem_gdps",
+    "name": "GEM Global",
+    "days": 5686,
+    "wetDays": 2992,
+    "maeWetMm": 3.62,
+    "biasPct": -15,
+    "ets": 0.284,
+    "caught": 0.43,
+    "falseAlarms": 0.33,
+    "etsRange": [
+     0.262,
+     0.307
+    ],
+    "coverage": 0.98,
+    "rank": 6,
+    "tiedWithBest": true
+   },
+   {
+    "id": "meteofrance_arpege_world",
+    "name": "ARPEGE",
+    "days": 5662,
+    "wetDays": 2988,
+    "maeWetMm": 3.56,
+    "biasPct": -15,
+    "ets": 0.281,
+    "caught": 0.46,
+    "falseAlarms": 0.38,
+    "etsRange": [
+     0.261,
+     0.302
+    ],
+    "coverage": 0.97,
+    "rank": 7,
+    "tiedWithBest": false
+   },
+   {
+    "id": "cma_grapes_global",
+    "name": "CMA GRAPES",
+    "days": 5185,
+    "wetDays": 2767,
+    "maeWetMm": 3.81,
+    "biasPct": -22,
+    "ets": 0.261,
+    "caught": 0.42,
+    "falseAlarms": 0.38,
+    "etsRange": [
+     0.236,
+     0.285
+    ],
+    "coverage": 0.89,
+    "rank": 8,
+    "tiedWithBest": false
+   },
+   {
+    "id": "jma_gsm",
+    "name": "JMA GSM",
+    "days": 5660,
+    "wetDays": 3146,
+    "maeWetMm": 3.44,
+    "biasPct": -26,
+    "ets": 0.24,
+    "caught": 0.37,
+    "falseAlarms": 0.35,
+    "etsRange": [
+     0.22,
+     0.26
+    ],
+    "coverage": 0.97,
+    "rank": 9,
+    "tiedWithBest": false
+   },
+   {
+    "id": "ncep_hrrr_conus",
+    "name": "HRRR",
+    "days": 0,
+    "wetDays": 0,
+    "maeWetMm": null,
+    "biasPct": null,
+    "ets": null,
+    "caught": null,
+    "falseAlarms": null,
+    "etsRange": null,
+    "coverage": 0
+   },
+   {
+    "id": "ncep_nam_conus",
+    "name": "NAM",
+    "days": 0,
+    "wetDays": 0,
+    "maeWetMm": null,
+    "biasPct": null,
+    "ets": null,
+    "caught": null,
+    "falseAlarms": null,
+    "etsRange": null,
+    "coverage": 0
+   },
+   {
+    "id": "cmc_gem_rdps",
+    "name": "GEM Regional",
+    "days": 0,
+    "wetDays": 0,
+    "maeWetMm": null,
+    "biasPct": null,
+    "ets": null,
+    "caught": null,
+    "falseAlarms": null,
+    "etsRange": null,
+    "coverage": 0
+   },
+   {
+    "id": "ecmwf_ifs",
+    "name": "ECMWF IFS",
+    "days": 2736,
+    "wetDays": 1279,
+    "maeWetMm": 3.37,
+    "biasPct": -19,
+    "ets": 0.353,
+    "caught": 0.51,
+    "falseAlarms": 0.31,
+    "etsRange": [
+     0.314,
+     0.391
+    ],
+    "coverage": 0.47
+   },
+   {
+    "id": "ncep_aigfs025",
+    "name": "AIGFS",
+    "days": 888,
+    "wetDays": 469,
+    "maeWetMm": 3,
+    "biasPct": -42,
+    "ets": 0.265,
+    "caught": 0.33,
+    "falseAlarms": 0.2,
+    "etsRange": [
+     0.201,
+     0.331
+    ],
+    "coverage": 0.15
+   }
+  ]
+ }
+}
