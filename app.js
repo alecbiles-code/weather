@@ -1,7 +1,8 @@
 // ALEC'S SNOW PAGE: static Colorado snowfall viewer. No build step, no backend, no API keys.
 import {HOUR, TZ, finite, numeric, round, localDate, shiftDate, zonedEpoch, dayBounds, parseProviderDate,
   integrate, dailyTotal, sampleStat, sumComplete, normalizeForecast, normalizeModels, horizon, spreadStats,
-  slrEstimate, qualityLabel, measuredDay, parseStationData, containsPoint, binIndex, SNOW_RAMP, RADAR_RAMP} from './core.js';
+  slrEstimate, qualityLabel, measuredDay, parseStationData, containsPoint, binIndex, SNOW_RAMP, RADAR_RAMP,
+  waterYearStart, seasonSnow, percentileRank} from './core.js';
 import {LOCS, MODELS} from './locations.js';
 import {esc, animOn, initChrome, setTicker, loadLists, skierHTML, factHTML, todaysSkier, todaysFact, loadGuestbook, guestbookHTML, submitGuestbook} from './retro.js';
 
@@ -49,7 +50,7 @@ const prefs = loadPrefs();
 const persist = () => writeStore(STORE, prefs);
 
 const app = {data: {}, errors: {}, busy: false, detail: {}, models: {}, snotel: {}, snotelMeta: {}, snotelAt: null, snotelTry: null, snotelError: null,
-  bulletins: null, bulletinError: null, bulletinTry: null, ranking: null, rankLead: 'day1', grid: null, lists: {skiers: [], facts: []}, guestbook: false,
+  bulletins: null, bulletinError: null, bulletinTry: null, season: {}, seasonTry: null, seasonError: null, snowpack: null, ranking: null, rankLead: 'day1', grid: null, lists: {skiers: [], facts: []}, guestbook: false,
   route: {view: 'home'}, sort: {key: 'next5', dir: -1}, show: 'resort', query: '', table: null,
   hires: null, map: {snowIndex: null, radarIndex: null, layers: {field: true, columns: true, trails: true, avalanche: false, snotel: false, freezing: false, snowfx: true, radar: false}}};
 const $ = id => document.getElementById(id);
@@ -106,7 +107,7 @@ function dailyFor(loc, d, cols = columns()) {
 }
 function totals(loc, d, cols = columns()) {
   const daily = dailyFor(loc, d, cols), pick = list => sumComplete(list.map(c => daily[c.date])), future = cols.filter(c => !c.past);
-  return {daily, past10: pick(cols.filter(c => c.past)), next5: pick(future.slice(0, 5)), next15: pick(future)};
+  return {daily, past10: pick(cols.filter(c => c.past)), next5: pick(future.slice(0, 5)), next10: pick(future.slice(0, 10)), next15: pick(future)};
 }
 /** Snow-weighted quality estimate for a forecast window, from temperatures (labeled estimate). */
 function forecastQuality(d, startDate, days) {
@@ -176,7 +177,7 @@ async function loadGroup(group) {
   rerender();
 }
 async function refresh(force = false) {
-  loadSnotel(force);
+  loadSnotel(force).then(() => loadSeason(force)); // one NRCS request at a time; the past-day columns go first
   if (app.busy) return;
   const wanted = LOCS.filter(l => force || !app.data[l.id] || Date.now() - app.data[l.id].fetchedAt > CONFIG.cacheMs);
   if (!wanted.length) return;
@@ -201,9 +202,32 @@ async function loadSnotel(force = false) {
   app.snotelTry = {at: Date.now()};
   rerender();
 }
+/**
+ * Season-to-date measured snow per station, from the water-year start (Oct 1) through each station's latest
+ * depth reading. Its own request, so a slow or failed season pull never touches the past-10-day columns.
+ */
+async function loadSeason(force = false) {
+  if (!force && !due(app.seasonTry)) return;
+  app.seasonTry = {loading: true};
+  const start = waterYearStart(localDate());
+  const p = new URLSearchParams({stationTriplets: TRIPLETS.join(','), elements: 'SNWD,WTEQ', duration: 'DAILY', beginDate: shiftDate(start, -1), endDate: localDate(), returnSuspectData: 'false'});
+  try {
+    const raw = await fetchJSON(`${CONFIG.station}data?${p}`);
+    for (const t of TRIPLETS) {
+      try {
+        const st = parseStationData(raw, t), end = st.SNWD?.filter(x => x.value !== null).at(-1)?.date;
+        app.season[t] = end && end >= start ? {start, end, ...seasonSnow(st, start, end)} : null;
+      } catch { app.season[t] = null; }
+    }
+    app.seasonError = null;
+  } catch (e) { app.seasonError = e.message; }
+  app.seasonTry = {at: Date.now()};
+  rerender();
+}
 async function loadExtras() {
   const gen = file => fetch(GEN_BASE + file, {cache: 'no-cache'}).then(r => r.ok ? r.json() : null);
-  const [lists, ranking, grid, guest, hires] = await Promise.allSettled([loadLists(), gen('model-ranking.json'), gen('grid.json'), loadGuestbook(), gen('hires/manifest.json')]);
+  const [lists, ranking, grid, guest, hires, snowpack] = await Promise.allSettled([loadLists(), gen('model-ranking.json'), gen('grid.json'), loadGuestbook(), gen('hires/manifest.json'), gen('snowpack-history.json')]);
+  if (snowpack.status === 'fulfilled') app.snowpack = snowpack.value;
   if (hires.status === 'fulfilled') app.hires = hires.value;
   if (lists.status === 'fulfilled') app.lists = lists.value;
   if (ranking.status === 'fulfilled') app.ranking = ranking.value;
@@ -259,7 +283,7 @@ function stormRow(rows, cols) {
     const tip = total ? `${fmt(c.date, {weekday: 'short', month: 'short', day: 'numeric'})}: ${n} of ${total} at ≥ ${oneInch()}${lead && lead.v > 0 ? `. Most: ${lead.r.loc.name}, ${snow(lead.v)}` : ''}` : 'No data';
     return `<td class="storm ${c.past ? 'past' : ''} ${c.today ? 'today' : ''}" data-tip="${esc(tip)}"><span class="storm-bar" style="--h:${n / max}"></span><span class="storm-n">${n || ''}</span></td>`;
   }).join('');
-  return `<tr class="storm-row"><th scope="row" class="name-cell"><span class="storm-label">Locations ≥ ${oneInch()}</span></th>${cells}<td class="total" colspan="4"></td></tr>`;
+  return `<tr class="storm-row"><th scope="row" class="name-cell"><span class="storm-label">Locations ≥ ${oneInch()}</span></th>${cells}<td class="total" colspan="5"></td></tr>`;
 }
 function cellTip(loc, c, v, d) {
   const day = fmt(c.date, {weekday: 'short', month: 'short', day: 'numeric'});
@@ -277,7 +301,7 @@ function matrixRow(row, cols, lastFav) {
   const err = !d && app.errors[loc.id] ? '<span class="pill warn">Unavailable</span>' : '';
   const cells = cols.map(c => { const v = t.daily[c.date]; return `<td class="cell ${heat(v)} ${c.past ? 'past' : ''} ${c.today ? 'today' : ''}" data-tip="${esc(cellTip(loc, c, v, d))}">${cellSnow(v)}</td>`; }).join('');
   const tot = (v, cls) => `<td class="total ${cls} ${heat(v)}">${finite(v) ? snow(v, false) : '–'}</td>`;
-  return `<tr class="${lastFav ? 'fav-last' : ''}"><th scope="row" class="name-cell"><div class="name-wrap"><button type="button" class="star ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(loc.name)} ${fav ? 'from' : 'to'} favorites">${icon('star')}</button><a href="#/resort/${loc.id}"><span class="loc-name">${esc(loc.name)}</span><span class="loc-sub">${esc(loc.region)}${loc.kind === 'bc' ? ' · Pass' : ''}${stale}${err}</span></a></div></th>${cells}${tot(t.past10, 'first')}${tot(t.next5, '')}${tot(t.next15, '')}<td class="qual" data-tip="${esc(q ? `Estimated from forecast temperatures: about ${Math.round(q.ratio)}:1 snow to water` : 'Not enough forecast snow to estimate')}">${q ? qual(q.label) : ''}</td></tr>`;
+  return `<tr class="${lastFav ? 'fav-last' : ''}"><th scope="row" class="name-cell"><div class="name-wrap"><button type="button" class="star ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(loc.name)} ${fav ? 'from' : 'to'} favorites">${icon('star')}</button><a href="#/resort/${loc.id}"><span class="loc-name">${esc(loc.name)}</span><span class="loc-sub">${esc(loc.region)}${loc.kind === 'bc' ? ' · Pass' : ''}${stale}${err}</span></a></div></th>${cells}${tot(t.past10, 'first')}${tot(t.next5, '')}${tot(t.next10, '')}${tot(t.next15, '')}<td class="qual" data-tip="${esc(q ? `Estimated from forecast temperatures: about ${Math.round(q.ratio)}:1 snow to water` : 'Not enough forecast snow to estimate')}">${q ? qual(q.label) : ''}</td></tr>`;
 }
 function stormFacts(rows, cols) {
   const resorts = rows.filter(r => r.loc.kind === 'resort'), pool = resorts.length ? resorts : rows;
@@ -292,6 +316,47 @@ function stormWatchHTML(f) {
   const best = f.best5 && f.best5.t.next5 > 0 ? `<p><b>Most in the next 5 days:</b> <a href="#/resort/${f.best5.loc.id}">${esc(f.best5.loc.name)}</a>, ${snow(f.best5.t.next5)}.</p>` : '';
   const measured = f.last3.length ? (f.last3[0].v > 0 ? `<p style="margin-top:6px"><b>Measured, last 3 days</b> (SNOTEL):</p><ol>${f.last3.filter(x => x.v > 0).slice(0, 3).map(x => `<li><a href="#/resort/${x.loc.id}">${esc(x.loc.name)}</a><span>${snow(x.v)}</span></li>`).join('')}</ol>` : '<p style="margin-top:6px"><b>Measured, last 3 days:</b> no new snow at any resort station.</p>') : '';
   return `<div class="recap">${nextLine}${best}${measured}</div>`;
+}
+/* ---- Season leaderboard and snowpack percentile: resorts only; nearby resorts can share a station ---- */
+const ordinal = n => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+const sweFmt = inches => imperial() ? `${inches.toFixed(1)} in` : `${Math.round(inches * 25.4)} mm`;
+/** A total with missing station days is a lower bound, so it says so. */
+const seasonText = s => `${s.missing ? '≥ ' : ''}${snow(s.cm)}`;
+function seasonHTML() {
+  const since = esc(fmt(waterYearStart(localDate()), {month: 'short', day: 'numeric'}));
+  const rows = LOCS.filter(l => l.kind === 'resort').map(loc => ({loc, s: app.season[loc.snotel]})).filter(x => finite(x.s?.cm))
+    .sort((a, b) => b.s.cm - a.s.cm || a.loc.name.localeCompare(b.loc.name));
+  if (!rows.length) return app.seasonError ? `<p class="notice">Season totals could not load (${esc(app.seasonError)}). Nothing is substituted.</p>` : !app.seasonTry?.at ? '<div class="skeleton" style="height:120px" aria-label="Loading season totals"></div>' : '<p class="muted">No station readings this season yet.</p>';
+  const list = rows[0].s.cm > 0 ? `<ol>${rows.slice(0, 5).map((x, i) => `<li><span class="rank">${i + 1}.</span><a href="#/resort/${x.loc.id}">${esc(x.loc.name)}</a><span>${seasonText(x.s)}</span></li>`).join('')}</ol>` : `<p>No new snow measured at any resort station since ${since}.</p>`;
+  return `<div class="recap"><p><b>Most snow since ${since}</b> (measured, SNOTEL):</p>${list}<p class="box-foot">Each resort’s station, daily depth gains added up. Settling makes this read below resort-reported totals. Full list below.</p></div>`;
+}
+const PCT_LABELS = [[90, 'Much above normal'], [70, 'Above normal'], [30, 'Near normal'], [10, 'Below normal'], [0, 'Much below normal']];
+/** Live SWE against the station's own record for that calendar date (snowpack-history.json, built by the scheduled job). */
+function snowpackFor(loc) {
+  const swe = app.snotel[loc.snotel]?.WTEQ?.filter(x => x.value !== null).at(-1);
+  if (!swe) return null;
+  const hist = app.snowpack?.stations?.[loc.snotel]?.swe?.[swe.date.slice(5)] || [], med = spreadStats(hist).median;
+  const enough = hist.length >= 10, none = enough && swe.value === 0 && med === 0; // bare ground on a date that is usually bare says nothing
+  return {swe, years: hist.length, none, early: enough && med < 1, pct: enough && !none ? percentileRank(hist, swe.value) : null,
+    pctMedian: finite(swe.median) && swe.median > 0 ? swe.value / swe.median * 100 : null};
+}
+function powerHTML() {
+  const rows = LOCS.filter(l => l.kind === 'resort').map(loc => ({loc, p: snowpackFor(loc), s: app.season[loc.snotel]}));
+  if (!rows.some(r => r.p)) return app.snotelError ? `<div class="notice">Station data could not load: ${esc(app.snotelError)}. No ranking is inferred.</div>` : '<div class="skeleton" style="height:200px" aria-label="Loading snowpack"></div>';
+  const key = r => finite(r.p?.pct) ? r.p.pct : -1;
+  rows.sort((a, b) => key(b) - key(a) || (b.p?.swe.value ?? -1) - (a.p?.swe.value ?? -1) || a.loc.name.localeCompare(b.loc.name));
+  const why = p => !p ? 'No reading' : !app.snowpack ? 'History not built yet' : p.years < 10 ? `Only ${p.years} year${p.years === 1 ? '' : 's'} of record` : 'No snowpack yet, normal for the date';
+  const body = rows.map(({loc, p, s}) => {
+    const has = finite(p?.pct), label = has ? PCT_LABELS.find(([t]) => p.pct >= t)[1] : '';
+    return `<tr><td>${has ? rows.findIndex(r => key(r) === p.pct) + 1 : '–'}</td><th scope="row"><a href="#/resort/${loc.id}">${esc(loc.name)}</a></th>
+      <td>${has ? `<b>${ordinal(Math.round(p.pct))}</b> <span class="score-bar" style="width:${Math.max(2, p.pct * 0.8)}px"></span> <span class="muted">${label}${p.early ? ', early season' : ''}</span>` : `<span class="muted">${why(p)}</span>`}</td>
+      <td class="num">${finite(p?.pctMedian) ? Math.round(p.pctMedian) + '%' : '–'}</td><td class="num">${p ? sweFmt(p.swe.value) : '–'}</td><td class="num">${finite(s?.cm) ? seasonText(s) : '–'}</td>
+      <td>${esc(app.snotelMeta[loc.snotel]?.name || loc.snotel)}${p && p.swe.date < shiftDate(localDate(), -2) ? '<span class="pill warn">Old reading</span>' : ''}</td></tr>`;
+  }).join('');
+  const since = fmt(waterYearStart(localDate()), {month: 'short', day: 'numeric'}), sp = app.snowpack;
+  return `<p class="panel-sub">Where today’s snowpack at each resort’s SNOTEL station ranks against the same date in every past year on record. 50th is a typical year; 90th means only 1 year in 10 had more.</p>
+  <div class="table-scroll" tabindex="0" aria-label="Snowpack rankings, scrolls sideways"><table class="data-table power"><thead><tr><th scope="col">Rank</th><th scope="col">Resort</th><th scope="col">Percentile<small>snow water vs record</small></th><th scope="col" class="num">% of median<small>NRCS, this date</small></th><th scope="col" class="num">Snow water<small>at the station now</small></th><th scope="col" class="num">Season snow<small>since ${esc(since)}, measured</small></th><th scope="col">SNOTEL station</th></tr></thead><tbody>${body}</tbody></table></div>
+  <p class="note">Modeled on the ${external('https://www.wcc.nrcs.usda.gov/ftpref/support/states/CO/products/#state=co&element=wteq', 'NRCS Colorado snowpack products')}. Percentile is computed by this site: the station’s latest snow water equivalent (SWE) placed among its SWE on the same calendar date in every past water year${sp ? ` through ${esc(fmt(sp.through, {month: 'short', year: 'numeric'}))}` : ''}, ties counted as half. It needs at least 10 years of record. Early in the season a few tenths of an inch swing the percentile a lot, and bare ground on a date that is usually bare is not ranked. % of median is the NRCS median for the date. Season snow adds up daily depth gains (the same rule as the measured past columns), so settling makes it read below resort-reported totals; ≥ marks a total with missing station days. Resorts that share a station share a value, and a station is near the resort, not on its slopes.${sp ? ` History rebuilt ${esc(ago(Date.parse(sp.generatedAt)))}.` : ' The percentile appears once the scheduled data job has built the station history.'}</p>`;
 }
 function tickerItems(f) {
   const items = [];
@@ -325,8 +390,8 @@ function renderHome() {
   const table = rows.length ? `<div class="matrix-scroll" tabindex="0" aria-label="Daily snowfall table, scrolls sideways">
       <table class="matrix ${summary ? 'summary' : ''}">
         <caption class="sr-only">Daily snowfall in ${imperial() ? 'inches' : 'centimeters'} by location. Past days are ${usingMeasured() ? 'measured at the nearest SNOTEL station' : 'modeled'}. Select a column header to sort.</caption>
-        <thead><tr>${sortHeader('name', 'Location', 'name-cell')}${head}${sortHeader('past10', 'Past', 'total first', '10 days')}${sortHeader('next5', 'Next', 'total', '5 days')}${sortHeader('next15', 'Next', 'total', `${CONFIG.futureColumns} days`)}${sortHeader('quality', 'Quality', 'qual', 'next 5 d')}</tr>
-        ${summary ? '' : `<tr class="band-row"><td class="name-cell"></td><td colspan="${CONFIG.pastDays}" class="band past">${usingMeasured() ? 'MEASURED at nearest SNOTEL station' : 'Modeled past, not measured'}</td><td colspan="${CONFIG.futureColumns}" class="band">Forecast (Open-Meteo blend)</td><td colspan="4" class="band total first">Totals, ${snowUnit()}</td></tr>
+        <thead><tr>${sortHeader('name', 'Location', 'name-cell')}${head}${sortHeader('past10', 'Past', 'total first', '10 days')}${sortHeader('next5', 'Next', 'total', '5 days')}${sortHeader('next10', 'Next', 'total', '10 days')}${sortHeader('next15', 'Next', 'total', `${CONFIG.futureColumns} days`)}${sortHeader('quality', 'Quality', 'qual', 'next 5 d')}</tr>
+        ${summary ? '' : `<tr class="band-row"><td class="name-cell"></td><td colspan="${CONFIG.pastDays}" class="band past">${usingMeasured() ? 'MEASURED at nearest SNOTEL station' : 'Modeled past, not measured'}</td><td colspan="${CONFIG.futureColumns}" class="band">Forecast (Open-Meteo blend)</td><td colspan="5" class="band total first">Totals, ${snowUnit()}</td></tr>
         ${stormRow(rows, cols)}`}</thead>
         <tbody>${rows.map((r, i) => matrixRow(r, dayCols, favCount && i === favCount - 1 && favCount < rows.length)).join('')}</tbody>
       </table>
@@ -336,6 +401,7 @@ function renderHome() {
       ${win('Skier of the Day', skierHTML(app.lists.skiers), {iconName: 'star'})}
       ${win('Alec’s Fun Fact of the Day', factHTML(app.lists.facts), {iconName: 'doc'})}
       ${win('Storm Watch', stormWatchHTML(facts), {iconName: 'flake'})}
+      ${win('Season Snowfall Leaders', seasonHTML(), {iconName: 'table'})}
     </div>
     ${win(summary ? 'Snowfall summary' : 'Snowfall, day by day', `<div class="toolbar">
       <div class="segmented" role="group" aria-label="Table layout">${tableBtn('summary', 'Summary')}${tableBtn('days', 'Day by day')}</div>
@@ -343,7 +409,8 @@ function renderHome() {
       <span class="tool-group"><span class="label">Past:</span><span class="segmented" role="group" aria-label="Past days source">${pastBtn('measured', 'Measured')}${pastBtn('modeled', 'Modeled')}</span></span>
       <label class="search"><span class="sr-only">Filter by name or region</span>${icon('search', 'icon-sm')}<input type="search" id="homeSearch" name="q" placeholder="Filter locations…" autocomplete="off" value="${esc(app.query)}"></label>
       ${legend()}</div>${table}
-      <p class="note">${usingMeasured() ? 'Past days: new snow measured at each location’s nearest SNOTEL station (depth gain from the previous day’s reading; gains under 1 in, or with no added water, count as 0). Nearby locations can share a station, and a station is not the resort’s own snow stake.' : 'Past days: Open-Meteo model output stitched from recent runs, not measurements.'} Today and later: Open-Meteo forecast for the listed coordinates, calendar days in Colorado time. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
+      <p class="note">${usingMeasured() ? 'Past days: new snow measured at each location’s nearest SNOTEL station (depth gain from the previous day’s reading; gains under 1 in, or with no added water, count as 0). Nearby locations can share a station, and a station is not the resort’s own snow stake.' : 'Past days: Open-Meteo model output stitched from recent runs, not measurements.'} Today and later: Open-Meteo forecast for the listed coordinates (for resorts, near the base area; each resort page has mid and summit), calendar days in Colorado time. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
+    ${win('Snowpack Power Rankings', powerHTML(), {iconName: 'star', cls: 'power-win'})}
     ${app.guestbook ? guestbookHTML() : ''}</div>`;
   const sc = view.querySelector('.matrix-scroll');
   if (sc) {
@@ -394,10 +461,10 @@ function dayTable(loc, d, cols) {
     const [a, b] = dayBounds(c.date), h = d?.hours, v = dailyTotal(h, c.date), m = c.past ? measuredFor(loc, c.date) : null;
     const est = !c.past && h && integrate(h, a, b).complete ? slrEstimate(h, a, b) : null;
     const quality = m?.quality ? `${qual(m.quality)} <span class="muted">${Math.round(m.ratio)}:1 measured</span>` : est?.ratio && est.liquidMm >= 0.5 ? `${qual(qualityLabel(est.ratio))} <span class="muted">${Math.round(est.ratio)}:1 est.</span>` : '';
-    return `<tr class="${c.past ? 'past' : ''} ${c.today ? 'today' : ''}"><th scope="row">${c.today ? 'Today' : esc(fmt(c.date, {weekday: 'short', month: 'short', day: 'numeric'}))}</th><td class="num ${heat(v)}">${finite(v) ? snow(v) : '–'}</td><td class="num">${c.past ? (m ? snow(m.cm) : '–') : ''}</td><td>${quality}</td><td class="num">${temp(sampleStat(h, a, b, 'temp'))} / ${temp(sampleStat(h, a, b, 'temp', 'min'))}</td><td class="num">${speed(sampleStat(h, a, b, 'gust'))}</td><td class="num">${elev(sampleStat(h, a, b, 'freezing', 'min'))}</td><td class="num">${rainFmt(integrate(h, a, b, 'rain').value)}</td></tr>`;
+    return `<tr class="${c.past ? 'past' : ''} ${c.today ? 'today' : ''}"><th scope="row">${c.today ? 'Today' : esc(fmt(c.date, {weekday: 'short', month: 'short', day: 'numeric'}))}</th><td class="num ${heat(v)}">${finite(v) ? snow(v) : '–'}</td><td class="num">${est ? snow(est.snowCm) : ''}</td><td class="num">${c.past ? (m ? snow(m.cm) : '–') : ''}</td><td>${quality}</td><td class="num">${temp(sampleStat(h, a, b, 'temp'))} / ${temp(sampleStat(h, a, b, 'temp', 'min'))}</td><td class="num">${speed(sampleStat(h, a, b, 'gust'))}</td><td class="num">${elev(sampleStat(h, a, b, 'freezing', 'min'))}</td><td class="num">${rainFmt(integrate(h, a, b, 'rain').value)}</td></tr>`;
   }).join('');
-  return `<div class="table-scroll" tabindex="0" aria-label="Daily details, scrolls sideways"><table class="data-table"><thead><tr><th scope="col">Day</th><th scope="col" class="num">Snow (model)</th><th scope="col" class="num">Measured (SNOTEL)</th><th scope="col">Snow quality</th><th scope="col" class="num">High / low</th><th scope="col" class="num">Max gust</th><th scope="col" class="num">Lowest freezing level</th><th scope="col" class="num">Rain</th></tr></thead><tbody>${rows}</tbody></table></div>
-  <p class="note">Snow quality is the snow-to-water ratio: Blower 17:1 or more, Powder 13 to 17, Average 10 to 13, Heavy under 10. Past days use the ratio actually measured at the SNOTEL station (shown when at least 2 in fell). Forecast days are an <b>estimate</b> from a Kuchera-style rule using the warmest of the 2 m, 600 hPa and 500 hPa temperatures. "Snow (model)" uses Open-Meteo’s fixed 7:1 ratio, so light snow can read low. Freezing level is the 0°C altitude, not the snow line.</p>`;
+  return `<div class="table-scroll" tabindex="0" aria-label="Daily details, scrolls sideways"><table class="data-table"><thead><tr><th scope="col">Day</th><th scope="col" class="num">Snow (model)</th><th scope="col" class="num">Snow (ratio est.)</th><th scope="col" class="num">Measured (SNOTEL)</th><th scope="col">Snow quality</th><th scope="col" class="num">High / low</th><th scope="col" class="num">Max gust</th><th scope="col" class="num">Lowest freezing level</th><th scope="col" class="num">Rain</th></tr></thead><tbody>${rows}</tbody></table></div>
+  <p class="note">Snow quality is the snow-to-water ratio: Blower 17:1 or more, Powder 13 to 17, Average 10 to 13, Heavy under 10. Past days use the ratio actually measured at the SNOTEL station (shown when at least 2 in fell). Forecast days are an <b>estimate</b> from a Kuchera-style rule using the warmest of the 2 m, 600 hPa and 500 hPa temperatures. "Snow (model)" uses Open-Meteo’s fixed 7:1 ratio, so light snow can read low. "Snow (ratio est.)" is the same forecast water at the estimated ratio: an estimate, not a better model, and it can run high in marginal or windy storms. Freezing level is the 0°C altitude, not the snow line.</p>`;
 }
 function hourlyStrip(d) {
   const start = Math.floor(Date.now() / HOUR) * HOUR, hrs = Array.from({length: 48}, (_, i) => start + (i + 1) * HOUR);
@@ -509,9 +576,10 @@ function stationHTML(loc) {
   const depth = data?.SNWD?.filter(x => x.value !== null).at(-1), swe = data?.WTEQ?.filter(x => x.value !== null).at(-1);
   const pct = finite(swe?.median) && swe.median > 0 && finite(swe?.value) ? Math.round(swe.value / swe.median * 100) : null;
   const old = [depth?.date, swe?.date].some(dt => dt && dt < shiftDate(localDate(), -2)), shared = LOCS.filter(l => l.snotel === loc.snotel).length;
+  const sp = snowpackFor(loc), season = app.season[loc.snotel];
   return `${app.snotelError && !data ? `<div class="notice">Station request failed: ${esc(app.snotelError)}. No measurement is inferred.</div>` : ''}
   <p class="panel-sub">${esc(meta?.name || 'Station')} SNOTEL · ${esc(loc.snotel)}${finite(meta?.elevationFt) ? ' · ' + ft(meta.elevationFt) : ''}${old ? ' <span class="pill warn">Old observation</span>' : ''}</p>
-  <dl class="facts"><div><dt>Snow depth (measured)</dt><dd>${depth ? snow(depth.value * 2.54) : 'No data'}</dd></div><div><dt>Snow water equivalent</dt><dd>${swe ? snow(swe.value * 2.54) : 'No data'}</dd></div><div><dt>Water vs 30-year median</dt><dd>${pct === null ? 'No data' : pct + '%'}</dd></div><div><dt>Reading for</dt><dd>${esc(depth?.date || swe?.date || 'No data')}</dd></div></dl>
+  <dl class="facts"><div><dt>Snow depth (measured)</dt><dd>${depth ? snow(depth.value * 2.54) : 'No data'}</dd></div><div><dt>Snow water equivalent</dt><dd>${swe ? snow(swe.value * 2.54) : 'No data'}</dd></div><div><dt>Water vs 30-year median</dt><dd>${pct === null ? 'No data' : pct + '%'}</dd></div><div><dt>Reading for</dt><dd>${esc(depth?.date || swe?.date || 'No data')}</dd></div><div><dt>Percentile for the date</dt><dd>${finite(sp?.pct) ? ordinal(Math.round(sp.pct)) : sp?.none ? 'No snowpack yet' : 'No data'}</dd></div><div><dt>Season snow since ${esc(fmt(waterYearStart(localDate()), {month: 'short', day: 'numeric'}))}</dt><dd>${finite(season?.cm) ? seasonText(season) : 'No data'}</dd></div></dl>
   <p class="note">A SNOTEL station is near, not at, this location${shared > 1 ? `, and ${shared} locations here share it` : ''}. ${external(`https://wcc.sc.egov.usda.gov/nwcc/site?sitenum=${encodeURIComponent(loc.snotel.split(':')[0])}`, 'Open NRCS station')}</p>`;
 }
 function avalancheHTML(loc) {
@@ -544,7 +612,7 @@ function renderResort() {
     <p class="meta">${esc(loc.region)} Colorado · ${loc.kind === 'bc' ? 'Backcountry pass (weather only, not a safety rating)' : 'Resort'}${loc.base ? ` · ${ft(loc.base)} to ${ft(loc.top)}` : ` · ${ft(loc.elev)}`}${d ? ` · forecast grid ${elev(d.elevation)}` : ''}</p></div>
     <div class="actions"><button type="button" class="btn ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}">${icon('star', 'icon-sm')}${fav ? 'Favorite' : 'Add favorite'}</button>${loc.webcam ? `<a class="btn" href="${esc(loc.webcam)}" target="_blank" rel="noopener noreferrer">${icon('cam', 'icon-sm')}Webcams</a>` : ''}<button type="button" class="btn" data-action="share">${icon('link', 'icon-sm')}Copy link</button><a class="btn" href="#/map?focus=${loc.id}">${icon('map', 'icon-sm')}On 3D map</a>${loc.url ? external(loc.url, 'Official site', 'btn') : ''}</div>
   </div>
-  <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${usingMeasured() ? 'measured, SNOTEL' : 'modeled'}</span></div><div><dt>Next 5 days</dt><dd>${finite(t.next5) ? snow(t.next5) : '–'}</dd><span>today + 4, forecast</span></div><div><dt>Next ${CONFIG.futureColumns} days</dt><dd>${finite(t.next15) ? snow(t.next15) : '–'}</dd><span>today + 14, forecast</span></div><div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
+  <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${usingMeasured() ? 'measured, SNOTEL' : 'modeled'}</span></div><div><dt>Next 5 days</dt><dd>${finite(t.next5) ? snow(t.next5) : '–'}</dd><span>today + 4, forecast</span></div><div><dt>Next 10 days</dt><dd>${finite(t.next10) ? snow(t.next10) : '–'}</dd><span>today + 9, forecast</span></div><div><dt>Next ${CONFIG.futureColumns} days</dt><dd>${finite(t.next15) ? snow(t.next15) : '–'}</dd><span>today + 14, forecast</span></div><div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
   ${bands.length ? `<div class="band-switch"><div class="segmented" role="group" aria-label="Forecast elevation">${bands.map(([v, l]) => `<button type="button" data-band="${v}" aria-pressed="${band === v}">${l}</button>`).join('')}</div><p class="note">Base, mid and summit re-run the same coordinates at that elevation (Open-Meteo lapse-rate adjustment). They are not separate stations. The model comparison always uses the grid point.</p></div>` : ''}
   ${win('Daily snowfall', d ? dailyBars(loc, d, cols) : '<div class="skeleton" style="height:180px"></div>', {iconName: 'table'})}
   ${win('Next 48 hours', `<p class="panel-sub">Hourly snowfall; hover or tap a bar for temperature and gusts.</p>${det?.data ? hourlyStrip(det.data) : '<div class="skeleton" style="height:110px"></div>'}`)}
@@ -716,8 +784,11 @@ function renderAbout() {
   <p>Three kinds of information, kept apart: model forecasts, station measurements, and official bulletins. Missing data shows as a dash, never as zero.</p>
   <h2>Past days: measured</h2>
   <p>By default the past 10 days come from the <a href="https://wcc.sc.egov.usda.gov/awdbRestApi/swagger-ui/index.html" target="_blank" rel="noopener noreferrer">NRCS SNOTEL</a> station assigned to each location. NRCS daily readings are taken at the end of their date, so new snow for a day is that day’s depth minus the previous day’s. Depth sensors jitter by about an inch, so a gain counts only when it is at least 1 in and the water content did not drop. Fresh snow also settles, so this tends to undercount big storms a little. Several locations share a station. There is no free feed of resort-reported snowfall, so the site does not show one; resort reports stay on their own websites. You can switch the past columns to modeled values with the "Past days" buttons.</p>
+  <h2>Season snowfall and snowpack rankings</h2>
+  <p>Season snow is the same measured rule added up from October 1 (the start of the NRCS water year) through each station’s latest reading. Daily depth gains miss the snow that settles while a storm is still falling, so the total reads below what resorts report from their own snow stakes; it is best for comparing resorts with each other, not for matching a resort’s number. A total with missing station days is marked ≥, because it can only be too low.</p>
+  <p>The Snowpack Power Rankings follow the <a href="https://www.wcc.nrcs.usda.gov/ftpref/support/states/CO/products/#state=co&element=wteq" target="_blank" rel="noopener noreferrer">NRCS Colorado snowpack products</a>. A scheduled job pulls every past daily snow water equivalent (SWE) reading for each station; the page then places today’s live reading among the readings for the same calendar date in every past water year, counting ties as half. 50th is a typical year for the date. At least 10 years of record are required, and bare ground on a date that is usually bare is not ranked, because it says nothing. Early in the season a few tenths of an inch move the percentile a lot. % of median is the NRCS median for the date.</p>
   <h2>Forecasts</h2>
-  <p>From the free <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener noreferrer">Open-Meteo forecast API</a> (best-match blend) at each location’s coordinates, summed into calendar days in Colorado time, including the 23 and 25 hour days at daylight-saving changes. A day with any missing hour is shown as missing.</p>
+  <p>From the free <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener noreferrer">Open-Meteo forecast API</a> (best-match blend) at each location’s coordinates, summed into calendar days in Colorado time, including the 23 and 25 hour days at daylight-saving changes. A day with any missing hour is shown as missing. Resort coordinates sit near the base area, so the homepage is a base-area forecast; each resort page can re-run it at mid-mountain and summit elevation.</p>
   <h2>Snow quality</h2>
   <p>Quality is the snow-to-water ratio: Blower 17:1 or higher, Powder 13 to 17, Average 10 to 13, Heavy under 10. For past days it is measured at the SNOTEL station (depth gain divided by water gain, shown when at least 2 in fell). For forecast days it is an estimate: Open-Meteo converts frozen water to snow at a fixed 7:1, and the site re-estimates the ratio from the warmest temperature between the 2 m point and 500 hPa using a Kuchera-style rule. It is a guide to light versus heavy snow, not a measurement.</p>
   <h2>Which model to trust</h2>

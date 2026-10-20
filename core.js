@@ -189,6 +189,25 @@ export function measuredDay(station, date) {
   return {cm: snowIn * 2.54, depthIn: d1, depthChangeIn: dDepth, sweChangeIn: dSwe, ratio, quality: qualityLabel(ratio)};
 }
 
+/** First day of the water year (Oct 1) that contains `date`; NRCS season totals start here. */
+export function waterYearStart(date) { const y = +date.slice(0, 4); return `${date.slice(5) >= '10-01' ? y : y - 1}-10-01`; }
+/**
+ * Season-to-date new snow at a SNOTEL station: the sum of measuredDay over [start, end].
+ * Missing days are counted, never treated as zero, so a total with missing days is a lower bound.
+ */
+export function seasonSnow(station, start, end) {
+  let cm = 0, days = 0, missing = 0;
+  for (let d = start; d <= end; d = shiftDate(d, 1)) { const m = measuredDay(station, d); days++; if (m) cm += m.cm; else missing++; }
+  return {cm: days > missing ? cm : null, days, missing};
+}
+/** Percentile of x among sorted historical values: share below, plus half of ties (mid-rank), 0 to 100. */
+export function percentileRank(sorted, x) {
+  if (!Array.isArray(sorted) || !sorted.length || !finite(x)) return null;
+  let below = 0, equal = 0;
+  for (const v of sorted) { if (v < x) below++; else if (v === x) equal++; }
+  return 100 * (below + equal / 2) / sorted.length;
+}
+
 /* ---- Small CSV reader for the owner-edited lists in data/ ---- */
 export function parseCSV(text) {
   text = text.replace(/^\uFEFF/, ''); // some editors add a byte-order mark, which would rename the first column

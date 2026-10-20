@@ -111,7 +111,7 @@ main:focus { outline: none; }
 .main-win > .view { padding: 10px; }
 .view .win { margin-bottom: 12px; }
 .home-stack { display: flex; flex-direction: column; }
-.win-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.win-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
 .win-grid .win { margin: 0; display: flex; flex-direction: column; }
 .win-grid .win-body { flex: 1; }
 @keyframes win-open { from { opacity: 0; transform: scale(0.97); } }
@@ -158,6 +158,8 @@ input[type="search"], input[type="text"], textarea { border: 0; background: var(
 .recap ol { margin: 4px 0 0; padding: 0; list-style: none; }
 .recap li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px dotted var(--lo); }
 .recap li a { flex: 1; }
+.recap li .rank { width: 1.6em; color: var(--dim); }
+.power td:first-child { width: 3em; }
 .spin { display: inline-block; }
 .anim-on .spin { animation: spin 6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -254,7 +256,7 @@ input[type="search"], input[type="text"], textarea { border: 0; background: var(
 .resort-head h1 { font: 400 2.1rem/1.05 var(--display); letter-spacing: 0.02em; }
 .meta { color: var(--muted); margin-top: 4px; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
+.kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
 .kpis > div { background: var(--field); padding: 8px 10px; display: flex; flex-direction: column; gap: 1px; }
 .kpis dt { font-size: 11px; color: var(--muted); }
 .kpis dd { font: 400 1.6rem/1.1 var(--display); letter-spacing: 0.02em; }
@@ -467,11 +469,11 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
 /* ---- Responsive ---- */
 @media (max-width: 1000px) {
   .win-grid { grid-template-columns: 1fr 1fr; }
-  .win-grid .win:last-child { grid-column: 1 / -1; }
   .map-layout { grid-template-columns: 1fr; }
   .map-stage { height: 62dvh; min-height: 420px; }
   .two-up, .picks { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpis > div:last-child { grid-column: 1 / -1; }
   .legend { margin-left: 0; }
   .guest-form { grid-template-columns: 1fr; }
 }
@@ -482,8 +484,8 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
   main { padding: 8px 4px 16px; }
   .main-win > .view { padding: 6px; }
   .win-grid { grid-template-columns: 1fr; order: 2; } /* the table leads on phones; the ticker carries the headline */
-  .win-grid .win:last-child { grid-column: auto; }
   .snow-win { order: 1; }
+  .power-win { order: 2; }
   #guestbook { order: 3; }
   .menubar { display: none; }
   .search, .search input { width: 100%; }
