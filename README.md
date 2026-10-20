@@ -2,7 +2,7 @@
 
 Colorado snow viewer for 32 resorts and backcountry passes, live at https://alecbiles-code.github.io/weather/. Windows 95 look, real data underneath.
 
-1. Homepage: a sortable table of daily snowfall. The past 10 days are measured at SNOTEL stations, and the next 15 come from the Open-Meteo forecast. Also on the page: snow quality, Skier of the Day, Alec's Fun Fact, Storm Watch, and an optional guestbook.
+1. Homepage: a sortable table of daily snowfall. The past 10 days are measured at SNOTEL stations, and the next 15 come from the Open-Meteo forecast, with 5, 10 and 15 day totals. Also on the page: snow quality, Skier of the Day, Alec's Fun Fact, Storm Watch, the Season Snowfall Leaders, the Snowpack Power Rankings (snowpack percentile per resort, as in the NRCS state products), and an optional guestbook.
 2. Location pages: daily and hourly snowfall, a scoreboard of which model to trust (scored against last winter's measurements), a 14-model comparison, a day table with measured and estimated snow quality, the SNOTEL snowpack, the CAIC bulletin, and a webcam link.
 3. 3D map: MapLibre GL with terrain, snowfall columns, and a 15-day snow field with a time slider. Also: a radar timeline, ski trails, avalanche zones, SNOTEL pins, freezing-level shading, falling snow, and a storm tour.
 
@@ -16,8 +16,8 @@ Static files, no build step, no backend, no API keys.
 4. `app.js`: data loading, routing, the homepage, location pages, map controls, and the Methods page.
 5. `retro.js`: Start menu, ticker, sparkles, Skier of the Day, Fun Fact, and the guestbook.
 6. `map.js`: the 3D map, loaded only when the map opens.
-7. `data/`: lists you can edit (`skiers.csv`, `facts.csv`, `guestbook.json`) and generated data (`grid.json`, `model-ranking.json`).
-8. `scripts/` and `.github/workflows/data.yml`: the scheduled job. It rebuilds `data/grid.json` every 6 hours and `data/model-ranking.json` weekly.
+7. `data/`: lists you can edit (`skiers.csv`, `facts.csv`, `guestbook.json`) and generated data (`grid.json`, `model-ranking.json`, `snowpack-history.json`).
+8. `scripts/` and `.github/workflows/data.yml`: the scheduled job. It rebuilds `data/grid.json` and `data/snowpack-history.json` every 6 hours and `data/model-ranking.json` weekly.
 
 ## Editing the fun stuff
 
@@ -41,6 +41,7 @@ python3 -m http.server 8765 --directory /tmp/site
 node --test test/core.test.mjs
 node scripts/build-grid.mjs      # about 5 minutes; Open-Meteo free-tier friendly
 node scripts/rank-models.mjs     # about 2 minutes
+node scripts/build-snowpack.mjs  # about 1 minute; SNOTEL history for the percentile rankings
 ```
 
 ## Deploy
