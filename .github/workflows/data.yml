@@ -39,7 +39,7 @@ jobs:
       - name: Build snowpack history for the percentile rankings
         run: node scripts/build-snowpack.mjs out
       - name: Rank models (weekly, or when run by hand)
-        if: github.event.schedule == '41 9 * * 1' || github.event_name == 'wor
+        if: github.event.schedule == '41 9 * * 1' || github.event_name == 'workflow_dispatch'
         run: node scripts/rank-models.mjs out
       - name: Build high-resolution map frames
         run: |
