@@ -59,11 +59,11 @@ jobs:
         continue-on-error: true
         run: |
           python scripts/build_hires.py --self-test
-          node --input-type=module -e "import {LOCS} from './locations.js'; prringify(LOCS))" > "$RUNNER_TEMP/locations.json"
+          node --input-type=module -e "import {LOCS} from './locations.js'; process.stdout.write(JSON.stringify(LOCS))" > "$RUNNER_TEMP/locations.json"
           rm -rf "$RUNNER_TEMP/build"
-          # Exit 0: all built. 1: some sources failed; publish the rest, then built; keep the old hires/.
+          # Exit 0: all built. 1: some sources failed; publish the rest, then fail the step. 2: nothing built; keep the old hires/.
           code=0; python scripts/build_hires.py "$RUNNER_TEMP/build" "$RUNNER_TEMP/locations.json" || code=$?
-          if [ "$code" -le 1 ] && [ -f "$RUNNER_TEMP/build/hires/manifest.json && mv "$RUNNER_TEMP/build/hires" out/hires; fi
+          if [ "$code" -le 1 ] && [ -f "$RUNNER_TEMP/build/hires/manifest.json" ]; then rm -rf out/hires && mv "$RUNNER_TEMP/build/hires" out/hires; fi
           exit "$code"
       - name: Publish to the data branch
         run: |
@@ -73,9 +73,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit --quiet -m "Forecast data $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push --force --quiet "https://x-access-token:${{ github.token }}ository }}.git" data
+          git push --force --quiet "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
       - name: Fail the run if any builder failed (after publishing the rest)
-        if: steps.grid.outcome == 'failure' || steps.snowpack.outcome == 'failme == 'failure' || steps.ranking.outcome == 'failure' || steps.hires.outcome =='failure'
+        if: steps.grid.outcome == 'failure' || steps.snowpack.outcome == 'failure' || steps.boards.outcome == 'failure' || steps.ranking.outcome == 'failure' || steps.hires.outcome == 'failure'
         run: |
           echo "::error::Builders: grid=${{ steps.grid.outcome }} snowpack=${{ steps.snowpack.outcome }} boards=${{ steps.boards.outcome }} ranking=${{ steps.ranking.outcome }} hires=${{ steps.hires.outcome }}. The other files were published."
           exit 1
