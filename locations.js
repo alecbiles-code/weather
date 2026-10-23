@@ -1,7 +1,7 @@
 // Shared location and model lists, used by the site (app.js, map.js) and by scripts/.
 // Coordinates and elevations are carried over unchanged from Powcast v2.
 const ORIGINAL_LOCATIONS = [
-  {name:'Vail',lat:39.6403,lon:-106.3742,elev:12408,region:'Central',kind:'resort',snotel:'842:CO:SNTL',acres:5289,vertical:3450,base:8120,top:11570,lifts:31,avgSnow:354},
+  {name:'Vail',lat:39.6403,lon:-106.3742,elev:11570,region:'Central',kind:'resort',snotel:'842:CO:SNTL',acres:5289,vertical:3450,base:8120,top:11570,lifts:31,avgSnow:354},
   {name:'Beaver Creek',lat:39.6042,lon:-106.5165,elev:11440,region:'Central',kind:'resort',snotel:'1041:CO:SNTL',acres:1832,vertical:3340,base:8100,top:11440,lifts:24,avgSnow:325},
   {name:'Breckenridge',lat:39.4817,lon:-106.0384,elev:12998,region:'Central',kind:'resort',snotel:'415:CO:SNTL',acres:2908,vertical:3398,base:9600,top:12998,lifts:35,avgSnow:366},
   {name:'Keystone',lat:39.6069,lon:-105.9439,elev:12408,region:'Central',kind:'resort',snotel:'505:CO:SNTL',acres:3148,vertical:3128,base:9280,top:12408,lifts:20,avgSnow:235},
@@ -66,7 +66,34 @@ const WEBCAMS = {
   'Sunlight Mountain': 'https://sunlightmtn.com/explore/mountain-status/#cams',
   'Ski Cooper': 'https://www.skicooper.com/weather-webcams/'
 };
-export const LOCS = ORIGINAL_LOCATIONS.map(l => ({...l, id: l.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), url: LINKS[l.name] || null, webcam: WEBCAMS[l.name] || null}));
+// Where the scheduled job reads the NOAA snowfall analysis for each resort: the center of the ski area's
+// landuse=winter_sports outline in OpenStreetMap (way id in the comment), from Overpass on 2026-10-21.
+// Each was checked against the Copernicus 90 m terrain model (Open-Meteo elevation API) to sit between the
+// resort's base and summit; the listed lat/lon above sit at the base area, which the research report showed
+// changes analysis season totals by up to 2.8x. Passes are sampled at the pass itself.
+const SAMPLES = {
+  'Vail': [39.6003, -106.3472], // way 531009607, 10,568 ft
+  'Beaver Creek': [39.5990, -106.5368], // way 531009608, 9,715 ft
+  'Breckenridge': [39.4749, -106.0810], // way 531005985, 10,938 ft
+  'Keystone': [39.5720, -105.9334], // way 531000583, 11,703 ft
+  'Copper Mountain': [39.4775, -106.1630], // way 531005986, 11,188 ft
+  'Arapahoe Basin': [39.6279, -105.8744], // way 461239598, 12,064 ft
+  'Winter Park': [39.8713, -105.7826], // way 460246666, 10,459 ft
+  'Steamboat': [40.4560, -106.7701], // way 530998526, 8,671 ft
+  'Aspen Snowmass': [39.1859, -106.9495], // way 1144096092, 10,108 ft
+  'Telluride': [37.9118, -107.8397], // way 528965906, 10,289 ft
+  'Crested Butte': [38.8970, -106.9432], // way 530521512, 10,312 ft
+  'Loveland': [39.6784, -105.9106], // way 184326673, 11,759 ft
+  'Eldora': [39.9413, -105.5934], // way 427517284, 9,787 ft
+  'Monarch Mountain': [38.5141, -106.3428], // way 308152532, 11,329 ft
+  'Purgatory': [37.6249, -107.8367], // way 529997955, 10,141 ft
+  'Wolf Creek': [37.4640, -106.7840], // way 530503256, 10,574 ft
+  'Silverton Mountain': [37.8748, -107.6577], // way 528964433, 11,647 ft
+  'Powderhorn': [39.0604, -108.1536], // way 460247056, 8,760 ft
+  'Sunlight Mountain': [39.3913, -107.3395], // way 530530657, 8,760 ft
+  'Ski Cooper': [39.3545, -106.2888] // way 531009606, 11,362 ft
+};
+export const LOCS = ORIGINAL_LOCATIONS.map(l => ({...l, id: l.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), url: LINKS[l.name] || null, webcam: WEBCAMS[l.name] || null, sample: SAMPLES[l.name] || null}));
 
 // Open-Meteo model ids verified against Colorado coordinates on 2026-10-14.
 // km: grid spacing from Open-Meteo's model documentation (checked 2026-10-15).

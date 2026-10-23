@@ -1,5 +1,5 @@
-// Pure forecast logic: time zones, null-safe accumulation, parsing, model spread.
-// No DOM access here, so `node --test test/` can verify it without a browser.
+// Pure forecast logic: time zones, null-safe accumulation, parsing, model spread, and the network policy.
+// No DOM access here, so `node --test test/core.test.mjs` can verify it without a browser.
 
 export const HOUR = 3600000;
 export const TZ = 'America/Denver';
@@ -46,6 +46,16 @@ export function parseProviderDate(value, zone = TZ) {
   if (m) { try { return zonedEpoch(m[1], m[2], zone); } catch { return null; } }
   return null;
 }
+/**
+ * Validity window of an avalanche.org map-layer bulletin. Its start_date and end_date carry no offset but are
+ * UTC: the products API gives the same clock values with +00:00 (verified 2026-10-21, product 185553). The
+ * feature's `timezone` names the center, not the timestamps. Level is 0 unless the bulletin is in force.
+ */
+export function bulletinWindow(props, now = Date.now()) {
+  const start = parseProviderDate(props?.start_date, 'UTC'), end = parseProviderDate(props?.end_date, 'UTC');
+  const valid = finite(start) && finite(end) && start <= now && end > now, n = numeric(props?.danger_level);
+  return {start, end, valid, level: valid && Number.isInteger(n) && n >= 1 && n <= 5 ? n : 0};
+}
 /** Calendar day in Colorado as [start, end) epochs; 23 or 25 hours on DST days. */
 export function dayBounds(date) { return [zonedEpoch(date), zonedEpoch(shiftDate(date, 1))]; }
 
@@ -74,6 +84,62 @@ export function sampleStat(hours, start, end, field, fn = 'max') {
 }
 /** Sum of values, or null when any part is missing. */
 export function sumComplete(values) { return values.length && values.every(finite) ? values.reduce((s, v) => s + v, 0) : null; }
+
+/* ---- Network retry policy, pure so it can be tested without a network ---- */
+/** Runs task(attempt) up to 1 + retries times, waiting baseMs, then 3 x baseMs, between tries. An error marked retryable: false is thrown at once. */
+export async function withRetry(task, {retries = 2, baseMs = 1000, sleep = ms => new Promise(r => setTimeout(r, ms))} = {}) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await task(attempt); }
+    catch (e) { if (attempt >= retries || e?.retryable === false) throw e; await sleep(baseMs * 3 ** attempt); }
+  }
+}
+/** HTTP statuses worth another try: timeouts, rate limits and server errors. Other 4xx answers will not change. */
+export const retryableStatus = status => status === 408 || status === 429 || status >= 500;
+/**
+ * GET with a timeout on every attempt (body included) and the withRetry policy. Network failures, timeouts,
+ * unreadable bodies and retryableStatus answers are retried; other HTTP errors and provider errors
+ * (Open-Meteo's {error: true, reason}) are not. Errors carry a short message fit for the page.
+ */
+export function request(url, {as = 'json', timeout = 15000, retries = 2, baseMs = 1000, init = {}, fetchImpl = (...a) => fetch(...a), sleep} = {}) {
+  const attempt = async () => {
+    const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const r = await fetchImpl(url, {...init, signal: ctrl.signal});
+      if (!r.ok) {
+        const reason = r.status < 500 ? (await r.json().catch(() => null))?.reason : null;
+        throw Object.assign(new Error(reason ? `${reason} (HTTP ${r.status})` : `HTTP ${r.status}`), {retryable: retryableStatus(r.status)});
+      }
+      const body = as === 'text' ? await r.text() : await r.json();
+      if (as === 'json' && body?.error === true) throw Object.assign(new Error(body.reason || 'Provider error'), {retryable: false});
+      return body;
+    } catch (e) {
+      if (e?.name === 'AbortError') throw new Error('Request timed out');
+      if (e instanceof SyntaxError) throw new Error('Unreadable response');
+      if (e instanceof TypeError) throw new Error('Network unavailable'); // fetch's own failure: offline, DNS, CORS
+      throw e;
+    } finally { clearTimeout(timer); }
+  };
+  return withRetry(attempt, {retries, baseMs, ...(sleep ? {sleep} : {})});
+}
+
+/* ---- Hash routes ---- */
+/**
+ * The view for a location hash, or null when the hash is not a route (for example #main from the skip link),
+ * so the caller keeps the current view. ids: the known location ids, for links from Powcast v2.
+ */
+export function parseRoute(hash, ids) {
+  const raw = String(hash || '').replace(/^#/, '');
+  if (/(^|&)(view|loc)=/.test(raw)) {
+    const p = new URLSearchParams(raw), id = p.get('loc');
+    return ids.has(id) && (p.get('report') === '1' || p.get('view') === 'detail') ? {view: 'resort', id} : {view: p.get('view') === 'map' ? 'map' : 'home'};
+  }
+  if (raw && !raw.startsWith('/')) return null;
+  const [path, query = ''] = raw.split('?'), parts = path.split('/').filter(Boolean), q = new URLSearchParams(query);
+  if (parts[0] === 'resort' && parts[1]) return {view: 'resort', id: parts[1], band: q.get('band')};
+  if (parts[0] === 'map') return {view: 'map', focus: q.get('focus')};
+  if (parts[0] === 'about') return {view: 'about'};
+  return {view: 'home'};
+}
 
 /* ---- Open-Meteo parsing ---- */
 const FIELDS = {precipitation: 'precip', temperature_2m: 'temp', temperature_600hPa: 't600', temperature_500hPa: 't500', wind_speed_10m: 'wind', wind_gusts_10m: 'gust', freezing_level_height: 'freezing', rain: 'rain', weather_code: 'code', precipitation_probability: 'pop'};
@@ -156,48 +222,87 @@ export function slrEstimate(hours, start, end) {
 export function qualityLabel(ratio) { return !finite(ratio) ? null : ratio >= 17 ? 'Blower' : ratio >= 13 ? 'Powder' : ratio >= 10 ? 'Average' : 'Heavy'; }
 
 /* ---- NRCS SNOTEL: snow-depth changes are never called snowfall. ---- */
+const STATION_UNITS = {SNWD: 'in', WTEQ: 'in', TMAX: 'degF'};
 export function parseStationData(raw, triplet) {
   const item = Array.isArray(raw) ? raw.find(s => s.stationTriplet === triplet) : null;
   if (!item || !Array.isArray(item.data)) throw new Error('No matching station in response');
   const out = {};
   for (const block of item.data) {
     const element = block.stationElement?.elementCode;
-    if (!['SNWD', 'WTEQ'].includes(element) || block.error || block.stationElement?.storedUnitCode !== 'in') continue;
+    if (!STATION_UNITS[element] || block.error || block.stationElement?.storedUnitCode !== STATION_UNITS[element]) continue;
+    const keep = v => element === 'TMAX' ? numeric(v) : numeric(v) >= 0 ? numeric(v) : null; // temperatures go below zero
     out[element] = (block.values || []).filter(v => validDate(String(v.date || '').slice(0, 10)))
-      .map(v => ({date: String(v.date).slice(0, 10), value: numeric(v.value) >= 0 ? numeric(v.value) : null, median: numeric(v.median) >= 0 ? numeric(v.median) : null}))
+      .map(v => ({date: String(v.date).slice(0, 10), value: keep(v.value), median: keep(v.median)}))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
   return out;
 }
 
 /**
- * Measured new snow at a SNOTEL station for one calendar day, in cm.
+ * Snow-to-water ratio for the water term of the station estimate, and the daily high above which water is not
+ * counted as snow (rain). Calibration knobs, not constants of nature. At the four Colorado SNOTEL stations with an
+ * observer snow board within 5 km and 1,000 ft, Dec to Mar of water years 2021 to 2026 (23 station-seasons,
+ * 2,560 in of board snow): depth gain alone caught 61% of board snowfall; this rule (10:1, 34F) 84%, with the
+ * lowest daily error (0.70 in) and no season above 128%; ungated 93% but up to 146% in one season; a 36F or
+ * 38F gate 86% or 88% but up to 137%. No variant met both of the research report's tests (85% to 105% pooled,
+ * no season above 130%); 34F was kept as the only one under 130%, 1 point below the band, with the lowest error.
+ * Re-check each autumn: node scripts/check-station-estimate.mjs
+ */
+export const SNOTEL_SNOW_RATIO = 10;
+export const SNOTEL_WATER_MAX_F = 34;
+
+/**
+ * Station estimate of new snow at a SNOTEL station for one calendar day, in cm.
  * NRCS daily values are end-of-day readings (the value dated D equals the hourly reading at
  * midnight ending D), so snow during D is depth(D) - depth(D - 1).
- * Depth sensors jitter by about an inch, so a gain counts only when it is at least 1 in and the
- * snow water equivalent did not fall; otherwise the day is 0. Missing readings stay null.
+ * Two terms, and the larger wins:
+ *   depth: the depth gain, counted only when it is at least 1 in and the water did not fall
+ *          (the sensor jitters by about an inch); otherwise 0.
+ *   water: ratio x the water gain, counted only when the day's high was at or below maxTempF.
+ *          Water is not lost to settling, so it recovers snow that settles while a storm is still falling.
+ * Missing depth on either day makes the day null. Missing water or temperature only drops the water term.
  */
-export function measuredDay(station, date) {
+export function measuredDay(station, date, {ratio = SNOTEL_SNOW_RATIO, maxTempF = SNOTEL_WATER_MAX_F} = {}) {
   const get = (el, d) => station?.[el]?.find(v => v.date === d)?.value ?? null;
   const prev = shiftDate(date, -1);
   const d1 = get('SNWD', date), d0 = get('SNWD', prev);
   if (!finite(d1) || !finite(d0)) return null;
-  const w1 = get('WTEQ', date), w0 = get('WTEQ', prev);
-  const dDepth = d1 - d0, dSwe = finite(w1) && finite(w0) ? w1 - w0 : null;
-  const snowIn = dDepth >= 1 && (dSwe === null || dSwe >= 0) ? dDepth : 0;
-  const ratio = snowIn >= 2 && dSwe !== null && dSwe >= 0.1 ? snowIn / dSwe : null;
-  return {cm: snowIn * 2.54, depthIn: d1, depthChangeIn: dDepth, sweChangeIn: dSwe, ratio, quality: qualityLabel(ratio)};
+  const w1 = get('WTEQ', date), w0 = get('WTEQ', prev), tmaxF = get('TMAX', date);
+  const dDepth = d1 - d0, dSwe = finite(w1) && finite(w0) ? round(w1 - w0, 2) : null;
+  const depthIn = dDepth >= 1 && (dSwe === null || dSwe >= 0) ? dDepth : 0;
+  const cold = finite(tmaxF) && tmaxF <= maxTempF, gained = dSwe !== null && dSwe > 0;
+  const waterIn = gained && cold ? ratio * dSwe : 0;
+  const snowIn = Math.max(depthIn, waterIn), method = snowIn === 0 ? null : waterIn > depthIn ? 'water' : 'depth';
+  // Measured quality is depth gain over water gain, so only on cold depth days: when the water term won, the depth
+  // gain lost snow to settling and would read too heavy; on a warm or unknown day the water may include rain.
+  const q = method === 'depth' && cold && depthIn >= 2 && dSwe >= 0.1 ? depthIn / dSwe : null;
+  // Why the water term did not count, when water rose: 'warm' (high above maxTempF) or 'no-temp' (no reading).
+  const waterGated = gained && !cold ? (finite(tmaxF) ? 'warm' : 'no-temp') : null;
+  return {cm: snowIn * 2.54, method, depthIn: d1, depthChangeIn: dDepth, sweChangeIn: dSwe, tmaxF, waterGated, ratio: q, quality: qualityLabel(q)};
+}
+
+/**
+ * NOHRSC analysis point values (hires/manifest.json past.points) by Colorado calendar day, in cm. Each 24 h
+ * window runs 12Z to 12Z (5 or 6 AM to 5 or 6 AM local), so it is filed under the local date it starts on.
+ */
+export function analysisByDate(days) {
+  const out = {};
+  for (const d of Array.isArray(days) ? days : []) {
+    const from = Date.parse(d?.from);
+    if (finite(from)) out[localDate(from)] = finite(d.inches) && d.inches >= 0 ? d.inches * 2.54 : null;
+  }
+  return out;
 }
 
 /** First day of the water year (Oct 1) that contains `date`; NRCS season totals start here. */
 export function waterYearStart(date) { const y = +date.slice(0, 4); return `${date.slice(5) >= '10-01' ? y : y - 1}-10-01`; }
 /**
- * Season-to-date new snow at a SNOTEL station: the sum of measuredDay over [start, end].
+ * Season-to-date station estimate at a SNOTEL station: the sum of measuredDay over [start, end].
  * Missing days are counted, never treated as zero, so a total with missing days is a lower bound.
  */
-export function seasonSnow(station, start, end) {
+export function seasonSnow(station, start, end, opts) {
   let cm = 0, days = 0, missing = 0;
-  for (let d = start; d <= end; d = shiftDate(d, 1)) { const m = measuredDay(station, d); days++; if (m) cm += m.cm; else missing++; }
+  for (let d = start; d <= end; d = shiftDate(d, 1)) { const m = measuredDay(station, d, opts); days++; if (m) cm += m.cm; else missing++; }
   return {cm: days > missing ? cm : null, days, missing};
 }
 /** Percentile of x among sorted historical values: share below, plus half of ties (mid-rank), 0 to 100. */

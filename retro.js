@@ -1,5 +1,5 @@
 // The 90s bits: Start menu, taskbar clock, sparkle trail, LED ticker, daily picks, guestbook.
-import {TZ, parseCSV, dailyPick, localDate} from './core.js';
+import {TZ, parseCSV, dailyPick, localDate, request} from './core.js';
 
 const $ = id => document.getElementById(id);
 export const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -12,7 +12,10 @@ export function initChrome() {
   btn.addEventListener('click', e => { e.stopPropagation(); const open = menu.hidden; menu.hidden = !open; btn.setAttribute('aria-expanded', String(open)); if (open) menu.querySelector('a, button')?.focus(); });
   document.addEventListener('click', e => { if (!menu.hidden && !menu.contains(e.target)) close(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !menu.hidden) { close(); btn.focus(); } });
-  menu.addEventListener('click', e => { if (e.target.closest('a')) close(); });
+  menu.addEventListener('click', e => { // every item closes the menu; buttons hand focus back to Start
+    if (e.target.closest('a')) close();
+    else if (e.target.closest('button')) { close(); btn.focus(); }
+  });
   const tick = () => { $('clock').textContent = new Intl.DateTimeFormat('en-US', {timeZone: TZ, hour: 'numeric', minute: '2-digit'}).format(new Date()); };
   tick(); setInterval(tick, 30000);
   let last = 0;
@@ -27,15 +30,17 @@ export function initChrome() {
   }, {passive: true});
 }
 
-/** Items are trusted HTML built by the app from escaped values. */
+/** Items are trusted HTML built by the app from escaped values. Written only when they change, so the ticker does not restart. */
 export function setTicker(items) {
-  $('ticker').innerHTML = items.map(i => `<span>&#9733; ${i}</span>`).join('');
-  $('tickerText').textContent = $('ticker').textContent;
+  const html = items.map(i => `<span>&#9733; ${i}</span>`).join(''), el = $('ticker');
+  if (el.dataset.html === html) return;
+  el.dataset.html = html; el.innerHTML = html;
+  $('tickerText').textContent = el.textContent;
 }
 
 /* ---- Skier of the Day and Alec's Fun Fact (lists live in data/*.csv) ---- */
 export async function loadLists() {
-  const get = async path => { try { const r = await fetch(path, {cache: 'no-cache'}); return r.ok ? parseCSV(await r.text()) : []; } catch { return []; } };
+  const get = async path => { try { return parseCSV(await request(path, {as: 'text', init: {cache: 'no-cache'}})); } catch { return []; } };
   const [skiers, facts] = await Promise.all([get('data/skiers.csv'), get('data/facts.csv')]);
   return {skiers: skiers.filter(s => s.first_name || s.nickname), facts: facts.map(f => f.fact).filter(Boolean)};
 }
@@ -58,13 +63,11 @@ export const todaysFact = list => dailyPick(list, localDate());
 /* ---- Guestbook: a Google Form collects entries, its published Sheet CSV displays them ---- */
 const gb = {config: null, entries: [], pending: [], error: null};
 export async function loadGuestbook() {
-  try { const r = await fetch('data/guestbook.json', {cache: 'no-cache'}); gb.config = r.ok ? await r.json() : null; } catch { gb.config = null; }
+  try { gb.config = await request('data/guestbook.json', {init: {cache: 'no-cache'}}); } catch { gb.config = null; }
   const c = gb.config;
   if (!c?.formUrl || !c.nameEntry || !c.messageEntry || !c.sheetCsvUrl) { gb.config = null; return false; }
   try {
-    const r = await fetch(c.sheetCsvUrl, {cache: 'no-cache'});
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const rows = parseCSV(await r.text());
+    const rows = parseCSV(await request(c.sheetCsvUrl, {as: 'text', init: {cache: 'no-cache'}}));
     const key = (row, re) => Object.keys(row).find(k => re.test(k));
     gb.entries = rows.map(row => ({time: row[key(row, /time/i)] || '', name: row[key(row, /name/i)] || '', message: row[key(row, /comment|message/i)] || ''}))
       .filter(e => e.name && e.message).reverse().slice(0, 80);
@@ -97,7 +100,7 @@ export async function submitGuestbook(form) {
   const body = new FormData();
   body.append(gb.config.nameEntry, name.slice(0, 40));
   body.append(gb.config.messageEntry, message.slice(0, 500));
-  await fetch(gb.config.formUrl, {method: 'POST', mode: 'no-cors', body});
+  await fetch(gb.config.formUrl, {method: 'POST', mode: 'no-cors', body, signal: AbortSignal.timeout(15000)}); // a post is not retried: it could sign twice
   try { localStorage.setItem('powcast-guestbook-at', String(Date.now())); } catch { /* storage blocked */ }
   gb.pending.unshift({time: 'just now', name, message});
   return 'Signed! Your entry will appear for everyone within a few minutes.';

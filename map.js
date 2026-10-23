@@ -1,7 +1,7 @@
 // MapLibre GL 3D map: keyless basemap and terrain, snowfall columns and field, radar timeline,
 // avalanche zones, SNOTEL pins, ski trails, freezing-level shading, falling snow, storm tour.
 // Loaded on demand so the homepage never pays for the map library.
-import {parseProviderDate, finite, SNOW_RAMP} from './core.js';
+import {bulletinWindow, finite, SNOW_RAMP} from './core.js';
 
 const VERSION = '5.24.0';
 const CDN = `https://unpkg.com/maplibre-gl@${VERSION}/dist/`;
@@ -17,21 +17,24 @@ const RADAR_TILE = stamp => `https://mesonet.agron.iastate.edu/cache/tile.py/1.0
 const HOME = {center: [-106.55, 38.95], pitch: 60, bearing: -14};
 const DANGER = ['#9aa5b1', '#5bb85b', '#f2d649', '#f39a3c', '#d9372b', '#1c1c1c'];
 const M_PER_CM = 650; // column height exaggeration: 1 cm of snow draws as 650 m
+const MIN_ZOOM = 6.4; // statewide home view on the narrowest screens (homeCamera)
+const LABEL_MINZOOM = MIN_ZOOM - 0.2; // resort labels show at every home view, phones included
 
-let map = null, opts = null, popup = null, snowCanvas = null, paused = false, tourToken = 0, radarKey = '';
+let map = null, opts = null, popup = null, popupLoc = null, snowCanvas = null, paused = false, tourToken = 0, radarKey = '';
 
 function loadLibrary() {
   if (window.maplibregl) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const css = Object.assign(document.createElement('link'), {rel: 'stylesheet', href: CDN + 'maplibre-gl.css', integrity: SRI.css, crossOrigin: 'anonymous'});
     const js = Object.assign(document.createElement('script'), {src: CDN + 'maplibre-gl.js', integrity: SRI.js, crossOrigin: 'anonymous'});
-    js.onload = () => window.maplibregl ? resolve() : reject(new Error('library did not initialize'));
-    js.onerror = () => reject(new Error('map library could not be downloaded'));
+    const timer = setTimeout(() => reject(new Error('map library timed out')), 30000); // a stalled CDN would leave a blank map
+    js.onload = () => { clearTimeout(timer); if (window.maplibregl) resolve(); else reject(new Error('library did not initialize')); };
+    js.onerror = () => { clearTimeout(timer); reject(new Error('map library could not be downloaded')); };
     document.head.append(css, js);
   });
 }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const homeCamera = el => ({...HOME, zoom: Math.min(8.6, Math.max(6.4, Math.log2(121658 * el.clientWidth / 480000)))});
+const homeCamera = el => ({...HOME, zoom: Math.min(8.6, Math.max(MIN_ZOOM, Math.log2(121658 * el.clientWidth / 480000)))});
 
 /* ---- GeoJSON builders ---- */
 function disc(lon, lat, km = 3.6) {
@@ -54,9 +57,8 @@ function locationCollections() {
 function avalancheCollection() {
   const now = Date.now();
   return {type: 'FeatureCollection', features: (opts.bulletins || []).filter(f => f.geometry).map(f => {
-    const p = f.properties || {}, zone = p.timezone || 'America/Denver', s = parseProviderDate(p.start_date, zone), e = parseProviderDate(p.end_date, zone);
-    const lvl = finite(s) && finite(e) && s <= now && e > now && Number.isInteger(+p.danger_level) && +p.danger_level >= 1 && +p.danger_level <= 5 ? +p.danger_level : 0;
-    return {type: 'Feature', geometry: f.geometry, properties: {name: p.name || 'CAIC zone', lvl, link: p.link || 'https://avalanche.state.co.us/'}};
+    const p = f.properties || {}; // bulletin times are UTC (see bulletinWindow in core.js)
+    return {type: 'Feature', geometry: f.geometry, properties: {name: p.name || 'CAIC zone', lvl: bulletinWindow(p, now).level, link: p.link || 'https://avalanche.state.co.us/'}};
   })};
 }
 function snotelCollection() {
@@ -105,7 +107,7 @@ function addOverlays() {
   map.addLayer({id: 'snotel-dots', type: 'circle', source: 'snotel', layout: {visibility: 'none'}, paint: {'circle-radius': 5, 'circle-color': '#39ff14', 'circle-stroke-color': '#000', 'circle-stroke-width': 1.5}});
   map.addLayer({id: 'snotel-labels', type: 'symbol', source: 'snotel', minzoom: 7.5, layout: {visibility: 'none', 'text-field': ['format', ['get', 'name'], {'font-scale': 0.8}, '\n', {}, ['get', 'depth'], {'font-scale': 0.9}], 'text-font': ['Noto Sans Regular'], 'text-size': 11, 'text-offset': [0, 1.1], 'text-anchor': 'top'},
     paint: {'text-color': dark ? '#b6ff9e' : '#0a5a00', 'text-halo-color': dark ? '#000' : '#fff', 'text-halo-width': 1.3}});
-  map.addLayer({id: 'snow-labels', type: 'symbol', source: 'snow-points', minzoom: 6.9, layout: {
+  map.addLayer({id: 'snow-labels', type: 'symbol', source: 'snow-points', minzoom: LABEL_MINZOOM, layout: {
     'text-field': ['format', ['get', 'name'], {'font-scale': 0.85}, '\n', {}, ['get', 'label'], {'font-scale': 1.05, 'text-font': ['literal', ['Noto Sans Bold']]}],
     'text-font': ['Noto Sans Regular'], 'text-size': 12, 'text-offset': [0, 1.4], 'text-anchor': 'top'},
     paint: {'text-color': dark ? '#e8eef4' : '#16202b', 'text-halo-color': dark ? '#000000' : '#ffffff', 'text-halo-width': 1.4}});
@@ -179,14 +181,26 @@ function drawFlakes(ts) {
 function restartFlakes() { if (fxFrame) cancelAnimationFrame(fxFrame); fxFrame = requestAnimationFrame(drawFlakes); }
 
 /* ---- Popups ---- */
-function showPopup(lngLat, html) { popup?.remove(); popup = new maplibregl.Popup({offset: 8, maxWidth: '260px'}).setLngLat(lngLat).setHTML(html).addTo(map); }
+// focusAfterOpen: false keeps keyboard focus on the control that opened the popup (the ranked list).
+function showPopup(lngLat, html) { popupLoc = null; popup?.remove(); popup = new maplibregl.Popup({offset: 8, maxWidth: '260px', focusAfterOpen: false}).setLngLat(lngLat).setHTML(html).addTo(map); }
+/** A location popup, rebuilt from the current options on every update so its value and units never go stale. */
+function showLocPopup(id, prefix = '') {
+  const f = opts.features.find(x => x.loc.id === id);
+  if (!f) return;
+  showPopup([f.loc.lon, f.loc.lat], locPopup({id, name: prefix + f.loc.name, label: f.label}));
+  popupLoc = {id, prefix};
+}
+function refreshPopup() {
+  const f = popupLoc && popup?.isOpen() && opts.features.find(x => x.loc.id === popupLoc.id);
+  if (f) popup.setHTML(locPopup({id: f.loc.id, name: popupLoc.prefix + f.loc.name, label: f.label}));
+}
 const locPopup = p => `<div class="pop"><strong>${esc(p.name)}</strong><span class="pop-val">${esc(p.label)}</span><span class="pop-sub">${esc(opts.windowLabel)}</span><a href="#/resort/${esc(p.id)}">Open forecast</a></div>`;
 function wireEvents() {
   map.on('click', e => {
     const hit = map.queryRenderedFeatures(e.point, {layers: ['snow-columns', 'snotel-dots', 'avalanche-fill'].filter(id => map.getLayer(id) && map.getLayoutProperty(id, 'visibility') !== 'none')})[0];
     if (!hit) return;
     const p = hit.properties;
-    if (hit.layer.id === 'snow-columns') showPopup(e.lngLat, locPopup(p));
+    if (hit.layer.id === 'snow-columns') showLocPopup(p.id);
     else if (hit.layer.id === 'snotel-dots') showPopup(e.lngLat, `<div class="pop"><strong>${esc(p.name)} SNOTEL</strong><span class="pop-sub">Measured snow ${esc(p.depth)}</span></div>`);
     else showPopup(e.lngLat, `<div class="pop"><strong>${esc(p.name)}</strong><span class="pop-sub">${+p.lvl ? `Danger ${['', 'Low', 'Moderate', 'Considerable', 'High', 'Extreme'][+p.lvl]} (${p.lvl} of 5)` : 'No current rating'}</span><a href="${esc(p.link)}" target="_blank" rel="noopener noreferrer">Read the CAIC forecast</a></div>`);
   });
@@ -212,16 +226,36 @@ export async function mountMap(container, canvas, options) {
   // The OpenFreeMap dark style references a few icons its sprite lacks; draw them as nothing.
   map.on('styleimagemissing', e => { if (!map.hasImage(e.id)) map.addImage(e.id, {width: 1, height: 1, data: new Uint8Array(4)}); });
   wireEvents();
-  map.once('load', () => { if (opts.focusId) focus(opts.focusId); });
+  // Not on 'load': that waits for every third-party source (a hanging trail-tile server once held it for minutes).
+  // Wait for the terrain instead (flying over unloaded terrain logs MapLibre warnings), but never more than 6 s.
+  if (opts.focusId) {
+    let done = false;
+    const token = tourToken; // any gesture, list click or tour in the meantime wins over this deferred focus
+    const go = () => { if (done) return; done = true; map.off('sourcedata', onData); if (opts.focusId && token === tourToken) focus(opts.focusId); };
+    const onData = e => { if (e.sourceId === 'dem' && map.isSourceLoaded('dem')) go(); };
+    map.on('sourcedata', onData);
+    setTimeout(go, 6000);
+  }
+  if (container.clientWidth <= 640) { // the compact attribution opens expanded and covers the zoom buttons on phones
+    const collapse = () => {
+      const el = container.querySelector('.maplibregl-ctrl-attrib.maplibregl-compact');
+      if (!el) return; // MapLibre makes it compact once attributions arrive
+      el.classList.remove('maplibregl-compact-show');
+      map.off('styledata', collapse); map.off('sourcedata', collapse);
+    };
+    map.on('styledata', collapse); map.on('sourcedata', collapse);
+  }
   container.dataset.theme = opts.theme;
   seedFlakes(); restartFlakes();
 }
 export function updateMap(options) {
+  const prev = opts;
+  opts = options; // kept even before the map exists, so the first-mount focus uses current values
   if (!map) return;
-  const themeChanged = options.theme !== opts.theme, windowChanged = options.windowLabel !== opts.windowLabel || options.unit !== opts.unit;
-  opts = options;
-  if (themeChanged) { map.setStyle(STYLES[opts.theme]); return; } // style.load re-adds every overlay
+  const themeChanged = options.theme !== prev.theme, windowChanged = options.windowLabel !== prev.windowLabel || options.unit !== prev.unit;
+  if (themeChanged) { map.setStyle(STYLES[opts.theme], {diff: false}); return; } // style.load re-adds every overlay; a diff only warns and rebuilds
   applyData(); // isStyleLoaded() is false while tiles load, which silently dropped updates; applyData guards itself
+  refreshPopup();
   if (windowChanged || !flakes.length) seedFlakes();
   restartFlakes();
 }
@@ -236,7 +270,7 @@ export function focus(id) {
   if (!map || !f) return;
   tourToken++;
   flyOrJump({center: [f.loc.lon, f.loc.lat], zoom: 10.4, pitch: 64, bearing: map.getBearing()});
-  showPopup([f.loc.lon, f.loc.lat], locPopup({id, name: f.loc.name, label: f.label}));
+  showLocPopup(id);
 }
 export function resetView() {
   if (!map) return;
@@ -254,7 +288,7 @@ export async function tour(ids) {
     flyOrJump({center: [f.loc.lon, f.loc.lat], zoom: 10.2, pitch: 66, bearing: -20 + i * 25});
     await wait(opts.reduceMotion ? 300 : 2400);
     if (token !== tourToken) return;
-    showPopup([f.loc.lon, f.loc.lat], locPopup({id, name: `#${i + 1} ${f.loc.name}`, label: f.label}));
+    showLocPopup(id, `#${i + 1} `);
     await wait(2600);
     if (token !== tourToken) return;
   }

@@ -6,7 +6,7 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#008080" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-<meta name="description" content="ALEC'S SNOW PAGE: daily snowfall for 32 Colorado resorts and passes. Measured past from SNOTEL, 15-day forecasts, a scored model comparison, and a 3D snow map.">
+<meta name="description" content="ALEC'S SNOW PAGE: daily snowfall for 32 Colorado resorts and passes. Past snow from SNOTEL stations, NOAA analysis and observer snow boards, 15-day forecasts, a scored model comparison, and a 3D snow map.">
 <title>ALEC'S SNOW PAGE</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000080'/%3E%3Cpath d='M16 4v24M5.6 10l20.8 12M5.6 22 26.4 10' stroke='%23fff' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
@@ -48,11 +48,11 @@
   <p class="banner-sub">Snow forecast for Colorado ;) </p>
 </header>
 <div class="ticker" aria-hidden="true"><div class="ticker-track" id="ticker"><span>Loading the snow report...</span></div></div>
-<p class="sr-only" id="tickerText" aria-live="polite"></p>
+<p class="sr-only" id="tickerText"></p>
 
 <main id="main" tabindex="-1">
   <div class="win main-win">
-    <div class="titlebar"><svg class="icon" aria-hidden="true"><use href="#i-flake"/></svg><span class="t" id="winTitle">Snowfall - ALEC'S SNOW PAGE</span><span class="title-btns" aria-hidden="true"><i>_</i><i>&#9633;</i><i>&times;</i></span></div>
+    <div class="titlebar"><svg class="icon" aria-hidden="true"><use href="#i-flake"/></svg><h1 class="t" id="winTitle">Snowfall - ALEC'S SNOW PAGE</h1><span class="title-btns" aria-hidden="true"><i>_</i><i>&#9633;</i><i>&times;</i></span></div>
     <nav class="menubar" aria-label="Main">
       <a href="#/" data-route="home">Snowfall</a>
       <a href="#/map" data-route="map">3D Map</a>
@@ -62,14 +62,17 @@
     <section id="view-resort" class="view" hidden></section>
     <section id="view-map" class="view" hidden></section>
     <section id="view-about" class="view" hidden></section>
-    <div class="statusbar" id="status" role="status" aria-live="polite"></div>
+    <div class="statusbar" id="status"></div>
+    <p class="sr-only" id="statusLive" role="status" aria-live="polite"></p>
   </div>
 </main>
 
 <footer class="footer">
   <div class="badges" aria-label="Credits">
     <a class="badge" href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Forecasts by<br><em>Open-Meteo</em></a>
-    <a class="badge" href="https://www.nrcs.usda.gov/resources/data-and-reports/snow-and-water-interactive-map" target="_blank" rel="noopener noreferrer">Measured by<br><em>NRCS SNOTEL</em></a>
+    <a class="badge" href="https://www.nrcs.usda.gov/resources/data-and-reports/snow-and-water-interactive-map" target="_blank" rel="noopener noreferrer">Stations by<br><em>NRCS SNOTEL</em></a>
+    <a class="badge" href="https://www.nohrsc.noaa.gov/snowfall_v2/" target="_blank" rel="noopener noreferrer">Snow analysis<br><em>NOAA NOHRSC</em></a>
+    <a class="badge" href="https://www.cocorahs.org/" target="_blank" rel="noopener noreferrer">Snow boards<br><em>CoCoRaHS, COOP</em></a>
     <a class="badge" href="https://avalanche.state.co.us/" target="_blank" rel="noopener noreferrer">Avalanche info<br><em>CAIC</em></a>
     <a class="badge" href="https://www.cotrip.org/" target="_blank" rel="noopener noreferrer">Road conditions<br><em>COTrip</em></a>
     <span class="badge">Best viewed at<br><em>800 x 600</em></span>
@@ -85,7 +88,7 @@
     <a href="#/about" data-route="about"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-doc"/></svg><span>Methods</span></a>
   </div>
   <div class="tray">
-    <button type="button" class="opt" data-units-toggle aria-label="Switch units"></button>
+    <button type="button" class="opt" data-units-toggle aria-label="in, switch units">in</button>
     <span id="clock"></span>
   </div>
 </div>
