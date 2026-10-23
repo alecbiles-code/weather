@@ -3,10 +3,12 @@
 Sources, all free NOAA data:
   snow    NBM (National Blend of Models) snowfall, 2.5 km: hourly to 48 h, then 6-hourly to day 11.
   radar   HRRR simulated composite reflectivity, 3 km, hourly to 48 h.
-  past    NOHRSC National Snowfall Analysis (observed), 0.04 deg, one 24 h map per day.
+  past    NOHRSC National Snowfall Analysis (observed), 0.04 deg, one 24 h map per day, plus the value
+          at each site location (past.points) when a locations file is given.
 
 Each frame is a small palette PNG on a Web Mercator grid over Colorado, plus manifest.json.
-Run by .github/workflows/data.yml. By hand: python scripts/build_hires.py OUT_DIR
+Run by .github/workflows/data.yml. By hand: python scripts/build_hires.py OUT_DIR [LOCATIONS_JSON]
+LOCATIONS_JSON is LOCS from locations.js as JSON (the workflow writes it with node).
 """
 import datetime as dt
 import io
@@ -204,56 +206,124 @@ def build_radar(out, target, now):
     return {"source": "HRRR simulated composite reflectivity, 3 km", "run": run.isoformat() + "Z", "frames": frames}
 
 
-def build_past(out, target, now):
-    """Observed 24 h snowfall, newest first; frame k is the total of the last k days."""
-    end = now.replace(hour=12, minute=0, second=0, microsecond=0)
-    if end > now:
-        end -= dt.timedelta(days=1)
-    total, frames = None, []
-    for k in range(PAST_DAYS):
-        stop = end - dt.timedelta(days=k)
+def read_sfav2(raw):
+    """Values (inches, NaN where missing) and the lat/lon axes of one NOHRSC sfav2 24 h file."""
+    with h5py.File(io.BytesIO(raw), "r") as f:
+        data = f["Data"]
+        units = data.attrs["units"][0]
+        units = units.decode() if isinstance(units, bytes) else str(units)
+        if units != "m":
+            raise RuntimeError(f"unexpected NOHRSC units {units!r}")
+        vals = data[:].astype("float64")
+        vals[vals < -9000] = np.nan
+        return vals / 0.0254, f["lat"][:], f["lon"][:]
+
+
+def sample_points(inches, lat, lon, points):
+    """Nearest-cell value at each point: {id: (inches or None, cell lat, cell lon)}."""
+    out = {}
+    for pid, (plat, plon) in points.items():
+        i, j = int(np.abs(lat - plat).argmin()), int(np.abs(lon - plon).argmin())
+        v = inches[i, j]
+        out[pid] = (None if np.isnan(v) else round(float(v), 2), float(lat[i]), float(lon[j]))
+    return out
+
+
+def day_window(stop):
+    """The 24 h window of the sfav2 file ending at `stop` (12Z), as ISO strings. The site files it under the
+    Colorado date of `from` (5 or 6 AM local)."""
+    return (stop - dt.timedelta(days=1)).isoformat() + "Z", stop.isoformat() + "Z"
+
+
+def self_test():
+    """Checks the point sampler and day windows on a synthetic grid; run before the build by the workflow."""
+    lat, lon = np.array([41.0, 40.96, 40.92]), np.array([-106.0, -105.96, -105.92])  # lat descending, as in sfav2
+    inches = np.array([[0.0, 1.0, 2.0], [3.0, 4.0, np.nan], [6.0, 7.0, 8.0]])
+    got = sample_points(inches, lat, lon, {"a": (40.95, -105.95), "b": (40.959, -105.921), "c": (41.2, -106.5)})
+    assert got["a"] == (4.0, 40.96, -105.96), got["a"]
+    assert got["b"] == (None, 40.96, -105.92), got["b"]  # missing analysis stays None, never 0
+    assert got["c"] == (0.0, 41.0, -106.0), got["c"]  # outside the grid: the nearest edge cell
+    assert day_window(dt.datetime(2026, 12, 2, 12)) == ("2026-12-01T12:00:00Z", "2026-12-02T12:00:00Z")
+    log.info("self-test passed")
+
+
+def build_past(out, target, now, points=None):
+    """Observed 24 h snowfall, newest first; frame k is the total of the last k days.
+    points ({id: (lat, lon)}) are also sampled at their nearest analysis cell, every day, into "points"."""
+    newest = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    if newest > now:
+        newest -= dt.timedelta(days=1)
+    files = []
+    for k in range(PAST_DAYS + 1):  # one spare day: the newest file is posted some time after 12Z
+        stop = newest - dt.timedelta(days=k)
         url = f"{NOHRSC}/{stop:%Y%m}/sfav2_CONUS_24h_{stop:%Y%m%d%H}.nc"
         try:
-            raw = get(url, tries=3)
+            files.append((stop, get(url, tries=3)))
         except Exception as e:  # noqa: BLE001
+            if k == 0:
+                log.info("NOHRSC %s not posted yet (%s); starting a day earlier", stop.date(), e)
+                continue
             log.warning("NOHRSC %s unavailable (%s); past frames stop here", stop.date(), e)
             break
-        with h5py.File(io.BytesIO(raw), "r") as f:
-            data = f["Data"]
-            units = data.attrs["units"][0]
-            units = units.decode() if isinstance(units, bytes) else str(units)
-            if units != "m":
-                raise RuntimeError(f"unexpected NOHRSC units {units!r}")
-            vals = data[:].astype("float64")
-            vals[vals < -9000] = np.nan
-            lat, lon = f["lat"][:], f["lon"][:]
+        if len(files) == PAST_DAYS:
+            break
+    total, frames, sampled = None, [], {pid: {"lat": la, "lon": lo, "days": []} for pid, (la, lo) in (points or {}).items()}
+    end = files[0][0] if files else newest
+    for k, (stop, raw) in enumerate(files):
+        vals, lat, lon = read_sfav2(raw)
+        start, stop_iso = day_window(stop)
+        for pid, (v, clat, clon) in sample_points(vals, lat, lon, points or {}).items():
+            sampled[pid]["cell"] = [round(clat, 3), round(clon, 3)]
+            sampled[pid]["days"].append({"from": start, "to": stop_iso, "inches": v})
         # Regular lat/lon grid: sample bilinearly in index space (works whichever way the axes run).
         rows = (target.lat2d - lat[0]) / (lat[1] - lat[0])
         cols = (target.lon2d - lon[0]) / (lon[1] - lon[0])
-        inches = ndimage.map_coordinates(np.nan_to_num(vals, nan=0.0), [rows, cols], order=1, mode="nearest") / 0.0254
+        inches = ndimage.map_coordinates(np.nan_to_num(vals, nan=0.0), [rows, cols], order=1, mode="nearest")
         total = inches if total is None else total + np.nan_to_num(inches)
         name = f"past/d{k + 1:02d}.png"
         save_png(out / name, total, SNOW_STEPS)
         frames.append({"from": (end - dt.timedelta(days=k + 1)).isoformat() + "Z", "to": end.isoformat() + "Z", "file": name})
-    return {"source": "NOHRSC National Snowfall Analysis v2 (observed), 0.04 deg", "frames": frames}
+    result = {"source": "NOHRSC National Snowfall Analysis v2 (observed), 0.04 deg", "frames": frames}
+    if points:
+        result["points"] = sampled
+        result["pointsNote"] = "inches in each 24 h window at the nearest 0.04 deg cell; null where the analysis has no value"
+    return result
+
+
+def load_points(path):
+    """Sample points from a JSON dump of LOCS (locations.js): the ski-area sample for resorts, else the location."""
+    try:
+        locs = json.loads(pathlib.Path(path).read_text())
+        return {l["id"]: tuple(l["sample"] or (l["lat"], l["lon"])) for l in locs}
+    except Exception as e:  # noqa: BLE001  (the map frames do not depend on the points)
+        log.warning("no sample points (%s); past.points is skipped", e)
+        return None
 
 
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    if sys.argv[1:2] == ["--self-test"]:
+        return self_test()
     out = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "out") / "hires"
+    points = load_points(sys.argv[2]) if len(sys.argv) > 2 else None
     target, now = Target(), dt.datetime.now(dt.UTC).replace(tzinfo=None)
     manifest = {"generatedAt": now.isoformat() + "Z", "bounds": [WEST, SOUTH, EAST, NORTH], "size": [target.w * SMOOTH, target.h * SMOOTH], "projection": "web-mercator",
                 "snowSteps": SNOW_STEPS, "radarSteps": RADAR_STEPS}
-    for key, build in (("past", build_past), ("snow", build_snow), ("radar", build_radar)):
+    builders = (("past", lambda *a: build_past(*a, points=points)), ("snow", build_snow), ("radar", build_radar))
+    for key, build in builders:
         try:
             manifest[key] = build(out, target, now)
             log.info("%s: %d frames", key, len(manifest[key]["frames"]))
         except Exception as e:  # noqa: BLE001  (one failed source must not sink the others)
             log.error("%s failed: %s", key, e)
             manifest[key] = {"error": str(e), "frames": []}
+    failed = [k for k in ("past", "snow", "radar") if "error" in manifest[k]]
+    if len(failed) == 3:
+        sys.exit(2)  # nothing new: the workflow keeps the previously published hires/ untouched
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
-    if not any(manifest[k]["frames"] for k in ("past", "snow", "radar")):
-        sys.exit("every high-resolution source failed")
+    if failed:
+        log.error("partial build, failed: %s", ", ".join(failed))
+        sys.exit(1)  # publish what was built, but turn the run red
 
 
 if __name__ == "__main__":
