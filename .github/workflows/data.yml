@@ -1,10 +1,13 @@
 name: Refresh forecast data
 # Every 6 hours: the coarse statewide grid (grid.json), the snowpack history (snowpack-history.json),
-# and the high-resolution map frames (hires/).
+# the nearest observer snow boards (boards.json), and the high-resolution map frames plus the NOAA
+# snowfall analysis at each location (hires/).
 # Weekly: the model scoreboard (model-ranking.json).
 # Everything is published to the "data" branch, which is overwritten each run so the repo
 # history does not grow. The site reads it from raw.githubusercontent.com.
 # Needs Settings > Actions > General > Workflow permissions set to "Read and write".
+# Each builder step may fail on its own (continue-on-error): the files it would rebuild keep their last
+# published version, the other files still update, and the last step turns the run red so it is noticed.
 on:
   schedule:
     - cron: '17 2,8,14,20 * * *'
@@ -35,16 +38,33 @@ jobs:
           if git fetch --depth 1 origin data; then git --work-tree=out checkout origin/data -- . ; fi
           ls out
       - name: Build coarse snow grid
+        id: grid
+        continue-on-error: true
         run: node scripts/build-grid.mjs out
       - name: Build snowpack history for the percentile rankings
+        id: snowpack
+        continue-on-error: true
         run: node scripts/build-snowpack.mjs out
+      - name: Build nearest snow-board reports
+        id: boards
+        continue-on-error: true
+        run: node scripts/build-boards.mjs out
       - name: Rank models (weekly, or when run by hand)
+        id: ranking
+        continue-on-error: true
         if: github.event.schedule == '41 9 * * 1' || github.event_name == 'workflow_dispatch'
         run: node scripts/rank-models.mjs out
-      - name: Build high-resolution map frames
+      - name: Build high-resolution map frames and the analysis at each location
+        id: hires
+        continue-on-error: true
         run: |
-          rm -rf out/hires
-          python scripts/build_hires.py out
+          python scripts/build_hires.py --self-test
+          node --input-type=module -e "import {LOCS} from './locations.js'; prringify(LOCS))" > "$RUNNER_TEMP/locations.json"
+          rm -rf "$RUNNER_TEMP/build"
+          # Exit 0: all built. 1: some sources failed; publish the rest, then built; keep the old hires/.
+          code=0; python scripts/build_hires.py "$RUNNER_TEMP/build" "$RUNNER_TEMP/locations.json" || code=$?
+          if [ "$code" -le 1 ] && [ -f "$RUNNER_TEMP/build/hires/manifest.json && mv "$RUNNER_TEMP/build/hires" out/hires; fi
+          exit "$code"
       - name: Publish to the data branch
         run: |
           cd out
@@ -53,4 +73,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit --quiet -m "Forecast data $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push --force --quiet "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+          git push --force --quiet "https://x-access-token:${{ github.token }}ository }}.git" data
+      - name: Fail the run if any builder failed (after publishing the rest)
+        if: steps.grid.outcome == 'failure' || steps.snowpack.outcome == 'failme == 'failure' || steps.ranking.outcome == 'failure' || steps.hires.outcome =='failure'
+        run: |
+          echo "::error::Builders: grid=${{ steps.grid.outcome }} snowpack=${{ steps.snowpack.outcome }} boards=${{ steps.boards.outcome }} ranking=${{ steps.ranking.outcome }} hires=${{ steps.hires.outcome }}. The other files were published."
+          exit 1
