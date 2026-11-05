@@ -211,6 +211,7 @@ input[type="search"], input[type="text"], textarea { border: 0; background: var(
 .matrix .band-text { display: inline-block; position: sticky; left: calc(var(--name-w) + 6px); } /* stays readable when the table opens scrolled to today */
 .matrix .total { min-width: 60px; text-align: right; padding-right: 10px; font-weight: 700; }
 .matrix .total.first { border-left: 2px solid var(--lo); }
+.matrix thead th.total { padding-right: 0; } /* the cell padding narrowed the header button, leaving gaps between header boxes */
 .matrix .qual { min-width: 76px; text-align: center; }
 .matrix.summary .total.first { border-left: 1px solid var(--lo); }
 .matrix.summary { min-width: 0; }
@@ -304,7 +305,15 @@ input[type="search"], input[type="text"], textarea { border: 0; background: var(
 @keyframes grow { from { transform: scaleY(0.3); opacity: 0; } }
 .hourly { display: grid; grid-template-columns: repeat(48, minmax(0, 1fr)); gap: 1px; align-items: end; height: 100px; }
 .hour { height: calc(var(--h) * 100%); min-height: 2px; transform-origin: bottom; background: var(--bar); }
-.hour-axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--dim); margin-top: 4px; }
+/* Next 48 hours: day totals above the strip, 6-hour amounts under it, colored like the table cells. */
+.h48-sums { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+.h48-sum { display: flex; flex-direction: column; padding: 5px 10px; border: 1px solid var(--lo); }
+.h48-sum span { font-size: 11px; }
+.h48-sum b { font: 400 1.6rem/1.1 var(--display); letter-spacing: 0.02em; }
+.h48-blocks { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1px; margin-top: 4px; }
+.h48-block { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 3px 0 2px; border-top: 2px solid var(--lo); text-align: center; line-height: 1.15; }
+.h48-block b { font-size: 15px; }
+.h48-block span { font-size: 9px; opacity: 0.85; white-space: nowrap; }
 .key-sw { display: inline-block; width: 10px; height: 10px; margin: 0 4px 0 10px; vertical-align: -1px; background: var(--bar); }
 .key-sw.measured { background: var(--bar-m); }
 
@@ -361,6 +370,7 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
 .map-canvas { position: absolute; inset: 2px; }
 .map-canvas.maplibregl-map { position: absolute; } /* MapLibre sets relative, which would collapse the height */
 .map-fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink); background: var(--field); z-index: 2; }
+.view-switch { position: absolute; top: 44px; left: 10px; z-index: 3; } /* under the compact attribution button */
 .map-fallback[hidden] { display: none; } /* author display rules beat [hidden]; without this the invisible box blocked panning */
 .snow-canvas { position: absolute; left: 2px; top: 2px; width: calc(100% - 4px); height: calc(100% - 4px); pointer-events: none; z-index: 1; } /* a canvas needs an explicit size; with only inset it kept 300x150 */
 .map-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -497,8 +507,10 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
   :root { --taskbar-h: 40px; }
   .banner { height: 130px; }
   .banner-sub { font-size: 10px; letter-spacing: 0.15em; bottom: 6px; }
-  main { padding: 8px 4px 16px; }
-  .main-win > .view { padding: 6px; }
+  main { padding: 6px 0 16px; } /* every pixel of width goes to the snow numbers */
+  .main-win > .view { padding: 4px 2px; }
+  .view .win-body { padding: 6px 3px; }
+  .view .win { margin-bottom: 8px; }
   .win-grid { grid-template-columns: 1fr; order: 2; } /* the table leads on phones; the ticker carries the headline */
   .snow-win { order: 1; }
   .power-win { order: 2; }
@@ -514,7 +526,7 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
   .loc-name { white-space: normal; font-size: 11px; line-height: 1.15; } /* full names on two lines, broken between words */
   .matrix th.day, .matrix td.cell, .matrix td.storm { min-width: 36px; width: 36px; }
   .matrix-scroll { max-height: 75dvh; } /* it must scroll vertically itself, or the sticky header rows have nothing to stick to */
-  .matrix.summary { --name-w: 122px; } /* room for "Independence" in Verdana, the iPhone fallback for Tahoma */
+  .matrix.summary { --name-w: 122px; width: 100%; } /* spare width goes to the number columns */ /* room for "Independence" in Verdana, the iPhone fallback for Tahoma */
   .matrix.summary .loc-name { font-size: 10.5px; }
   .matrix.summary .total { min-width: 40px; padding-right: 2px; }
   .matrix.summary .qual { min-width: 54px; }
@@ -523,9 +535,10 @@ figcaption { display: flex; flex-wrap: wrap; gap: 3px 14px; font-size: 11px; col
   .matrix.summary thead th button small { font-size: 9px; line-height: 1.05; }
   .matrix.summary thead th button span { white-space: nowrap; }
   .matrix.summary thead th.sorted button span::after { margin-left: 1px; border-width: 3px; }
-  .bars { gap: 1px; height: 160px; }
-  .bar-val, .bar-date { display: none; }
-  .bar-col { grid-template-rows: 0 1fr auto 0; } /* the hidden value row gives its 16 px back to the bars */
+  .bars { gap: 1px; height: 180px; }
+  .bar-date { display: none; }
+  .bar-col { grid-template-rows: 28px 1fr auto 0; }
+  .bar-val { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 10px; line-height: 1; align-self: end; } /* upright numbers do not fit 25 columns on a phone */
   .bar-day { font-size: 9px; }
   .wide-only { display: none; }
   .narrow-only { display: inline; font-weight: 700; }

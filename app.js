@@ -1,6 +1,6 @@
 // ALEC'S SNOW PAGE: static Colorado snowfall viewer. No build step, no backend, no API keys.
 import {HOUR, TZ, finite, numeric, round, localDate, shiftDate, zonedEpoch, dayBounds, bulletinWindow, request, parseRoute,
-  integrate, dailyTotal, sampleStat, sumComplete, normalizeForecast, normalizeModels, horizon, spreadStats,
+  integrate, dailyTotal, rangeTotals, sampleStat, sumComplete, normalizeForecast, normalizeModels, horizon, spreadStats,
   slrEstimate, qualityLabel, measuredDay, analysisByDate, parseStationData, containsPoint, binIndex, SNOW_RAMP, RADAR_RAMP,
   waterYearStart, seasonSnow, percentileRank, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F} from './core.js';
 import {LOCS, MODELS} from './locations.js';
@@ -57,7 +57,7 @@ const persist = () => writeStore(STORE, prefs);
 const app = {data: {}, errors: {}, busy: false, detail: {}, models: {}, snotel: {}, snotelMeta: {}, src: {},
   bulletins: null, season: {}, snowpack: null, ranking: null, rankLead: 'day1', grid: null, boards: null, lists: {skiers: [], facts: []}, guestbook: false,
   route: {view: 'home'}, sort: {key: 'next5', dir: -1}, show: 'resort', query: '', table: null,
-  hires: null, map: {snowIndex: null, radarIndex: null, layers: {field: true, columns: true, trails: true, avalanche: false, snotel: false, freezing: false, snowfx: true, radar: false}}};
+  hires: null, map: {snowIndex: null, radarIndex: null, view3d: null, layers: {field: true, columns: true, trails: true, avalanche: false, snotel: false, freezing: false, snowfx: true, radar: false}}};
 const $ = id => document.getElementById(id);
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
@@ -161,9 +161,15 @@ function pastValue(loc, d, date) {
 function dailyFor(loc, d, cols = columns()) {
   return Object.fromEntries(cols.map(c => [c.date, c.past ? pastValue(loc, d, c.date) : d ? dailyTotal(d.hours, c.date) : null]));
 }
+/** Forecast ranges in days from today (day 0): each column is the snow in its own range, not a running total. */
+const RANGES = [0, 5, 10, CONFIG.futureColumns];
+const rangeLabel = i => `${RANGES[i]}–${RANGES[i + 1]}`;
+/** Calendar dates of forecast range i, for example "Nov 9 to Nov 13". */
+const rangeDates = (i, today = localDate()) => [shiftDate(today, RANGES[i]), shiftDate(today, RANGES[i + 1] - 1)].map(d => fmt(d, {month: 'short', day: 'numeric'})).join(' to ');
 function totals(loc, d, cols = columns()) {
-  const daily = dailyFor(loc, d, cols), pick = list => sumComplete(list.map(c => daily[c.date])), future = cols.filter(c => !c.past);
-  return {daily, past10: pick(cols.filter(c => c.past)), next5: pick(future.slice(0, 5)), next10: pick(future.slice(0, 10)), next15: pick(future)};
+  const daily = dailyFor(loc, d, cols), today = cols.find(c => !c.past)?.date ?? localDate();
+  const [next5, days5to10, days10to15] = rangeTotals(d?.hours, today, RANGES);
+  return {daily, past10: sumComplete(cols.filter(c => c.past).map(c => daily[c.date])), next5, days5to10, days10to15};
 }
 /** Snow-weighted quality estimate for a forecast window, from temperatures (labeled estimate). */
 function forecastQuality(d, startDate, days) {
@@ -435,7 +441,7 @@ function matrixRow(row, cols, lastFav) {
   const err = !d && app.errors[loc.id] ? '<span class="pill warn">Unavailable</span>' : '';
   const cells = cols.map(c => { const v = t.daily[c.date]; return `<td class="cell ${heat(v)} ${c.past ? 'past' : ''} ${c.today ? 'today' : ''}" data-tip="${esc(cellTip(loc, c, v, d))}">${cellSnow(v)}</td>`; }).join('');
   const tot = (v, cls) => `<td class="total ${cls} ${heat(v)}">${finite(v) ? snow(v, false) : '–'}</td>`;
-  return `<tr class="${lastFav ? 'fav-last' : ''}"><th scope="row" class="name-cell"><div class="name-wrap"><button type="button" class="star ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(loc.name)} ${fav ? 'from' : 'to'} favorites">${icon('star')}</button><a href="#/resort/${loc.id}"><span class="loc-name">${esc(loc.name)}</span><span class="loc-sub">${esc(loc.region)}${loc.kind === 'bc' ? ' · Pass' : ''}${stale}${err}</span></a></div></th>${cells}${tot(t.past10, 'first')}${tot(t.next5, '')}${tot(t.next10, '')}${tot(t.next15, '')}<td class="qual" data-tip="${esc(q ? `Estimated from forecast temperatures: about ${Math.round(q.ratio)}:1 snow to water` : 'Not enough forecast snow to estimate')}">${q ? qual(q.label) : ''}</td></tr>`;
+  return `<tr class="${lastFav ? 'fav-last' : ''}"><th scope="row" class="name-cell"><div class="name-wrap"><button type="button" class="star ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}" aria-label="${fav ? 'Remove' : 'Add'} ${esc(loc.name)} ${fav ? 'from' : 'to'} favorites">${icon('star')}</button><a href="#/resort/${loc.id}"><span class="loc-name">${esc(loc.name)}</span><span class="loc-sub">${esc(loc.region)}${loc.kind === 'bc' ? ' · Pass' : ''}${stale}${err}</span></a></div></th>${cells}${tot(t.past10, 'first')}${tot(t.next5, '')}${tot(t.days5to10, '')}${tot(t.days10to15, '')}<td class="qual" data-tip="${esc(q ? `Estimated from forecast temperatures: about ${Math.round(q.ratio)}:1 snow to water` : 'Not enough forecast snow to estimate')}">${q ? qual(q.label) : ''}</td></tr>`;
 }
 /**
  * Storm Watch and the ticker: always every resort statewide, whatever the table filter shows, so the box and the
@@ -445,9 +451,11 @@ function stormFacts(cols = columns()) {
   const pool = LOCS.filter(l => l.kind === 'resort').map(loc => ({loc, d: app.data[loc.id], t: totals(loc, app.data[loc.id], cols)}));
   const next = cols.filter(c => !c.past).map(c => ({c, ...dayStats(pool, c)})).find(x => x.n >= 3);
   const best5 = pool.filter(r => finite(r.t.next5)).sort((a, b) => b.t.next5 - a.t.next5)[0];
+  // Days 0-3 (today and the next 2 days), the same calendar-day rule as the table; a resort without all 72-odd hours is left out, not zeroed.
+  const next3 = pool.map(({loc, d}) => ({loc, v: rangeTotals(d?.hours, localDate(), [0, 3])[0]})).filter(x => finite(x.v)).sort((a, b) => b.v - a.v);
   const last3 = pool.map(({loc}) => ({loc, v: sumComplete([1, 2, 3].map(i => measuredFor(loc, shiftDate(localDate(), -i))?.cm ?? null))}))
     .filter(x => finite(x.v)).sort((a, b) => b.v - a.v);
-  return {next, best5, last3, total: pool.length, withForecast: pool.filter(r => r.d).length};
+  return {next, best5, next3, last3, total: pool.length, withForecast: pool.filter(r => r.d).length};
 }
 function stormWatchHTML(f) {
   const scope = `<p class="box-sub">All ${f.total} resorts statewide, whatever the table shows.</p>`;
@@ -456,10 +464,14 @@ function stormWatchHTML(f) {
     : f.next ? `<p><b>Next widespread snow:</b> ${f.next.c.today ? 'today' : esc(fmt(f.next.c.date, {weekday: 'long', month: 'short', day: 'numeric'}))}. ${f.next.n} of ${f.next.total} resorts at ≥ ${oneInch()}; most at <a href="#/resort/${f.next.lead.r.loc.id}">${esc(f.next.lead.r.loc.name)}</a> (${snow(f.next.lead.v)}).</p>`
     : `<p><b>Next widespread snow:</b> none in the next ${CONFIG.futureColumns} days${partial}.</p>`;
   const best = f.best5 && f.best5.t.next5 > 0 ? `<p><b>Most in the next 5 days:</b> <a href="#/resort/${f.best5.loc.id}">${esc(f.best5.loc.name)}</a>, ${snow(f.best5.t.next5)}.</p>` : '';
+  const days3 = [localDate(), shiftDate(localDate(), 2)].map(dt => fmt(dt, {weekday: 'short', month: 'short', day: 'numeric'})).join(' to ');
+  const head3 = `<b>Most snow, next 3 days</b> (forecast, ${esc(days3)})`, short3 = f.next3.length < f.total ? ` ${f.total - f.next3.length} without a complete forecast.` : '';
+  const ahead = !f.withForecast ? '' : f.next3.length ? (f.next3[0].v > 0 ? `<p class="recap-gap">${head3}:</p><ol>${f.next3.filter(x => x.v > 0).slice(0, 3).map(x => `<li><a href="#/resort/${x.loc.id}">${esc(x.loc.name)}</a><span>${snow(x.v)}</span></li>`).join('')}</ol>${short3 ? `<p class="box-sub">${short3.trim()}</p>` : ''}`
+    : `<p class="recap-gap">${head3}: no snow forecast at any resort.${short3}</p>`) : `<p class="recap-gap">${head3}: no resort has a complete forecast for these days.</p>`;
   const s = src('snotel'), head = '<b>Last 3 days</b> (SNOTEL station estimate)';
   const measured = f.last3.length ? (f.last3[0].v > 0 ? `<p class="recap-gap">${head}:</p><ol>${f.last3.filter(x => x.v > 0).slice(0, 3).map(x => `<li><a href="#/resort/${x.loc.id}">${esc(x.loc.name)}</a><span>${snow(x.v)}</span></li>`).join('')}</ol>` : `<p class="recap-gap">${head}: no new snow at any resort station.</p>`)
     : `<p class="recap-gap">${head}: ${s.at ? 'no station has all 3 days.' : s.error ? 'station data unavailable.' : 'loading…'}</p>`;
-  return `<div class="recap">${scope}${nextLine}${best}${measured}</div>`;
+  return `<div class="recap">${scope}${nextLine}${best}${ahead}${measured}</div>`;
 }
 /* ---- Season leaderboard and snowpack percentile: resorts only; nearby resorts can share a station ---- */
 const ordinal = n => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
@@ -557,7 +569,7 @@ function renderHome() {
   const table = () => rows.length ? `${pastDown}<div class="matrix-scroll" data-layout="${layout}" tabindex="0" aria-label="Daily snowfall table, scrolls sideways">
       <table class="matrix ${summary ? 'summary' : ''}">
         <caption class="sr-only">Daily snowfall in ${imperial() ? 'inches' : 'centimeters'} by location. Past days are the ${PAST_NAMES[pastSource()]}. Select a column header to sort.</caption>
-        <thead><tr>${sortHeader('name', 'Location', 'name-cell')}${head}${sortHeader('past10', 'Past', 'total first', '10 days')}${sortHeader('next5', 'Next', 'total', '5 days')}${sortHeader('next10', 'Next', 'total', '10 days')}${sortHeader('next15', 'Next', 'total', `${CONFIG.futureColumns} days`)}${sortHeader('quality', 'Quality', 'qual', 'next 5 d')}</tr>
+        <thead><tr>${sortHeader('name', 'Location', 'name-cell')}${head}${sortHeader('past10', 'Past', 'total first', '10 days')}${sortHeader('next5', 'Days', 'total', rangeLabel(0))}${sortHeader('days5to10', 'Days', 'total', rangeLabel(1))}${sortHeader('days10to15', 'Days', 'total', rangeLabel(2))}${sortHeader('quality', 'Quality', 'qual', 'next 5 d')}</tr>
         ${summary ? '' : `<tr class="band-row"><td class="name-cell"></td><td colspan="${CONFIG.pastDays}" class="band past" title="Past days: ${PAST_NAMES[pastSource()]}"><span class="band-text">${PAST_BAND[pastSource()]}</span></td><td colspan="${CONFIG.futureColumns}" class="band">Forecast (Open-Meteo blend)</td><td colspan="5" class="band total first">Totals, ${snowUnit()}</td></tr>
         ${stormRow(rows, cols)}`}</thead>
         <tbody>${rows.map((r, i) => matrixRow(r, dayCols, favCount && i === favCount - 1 && favCount < rows.length)).join('')}</tbody>
@@ -576,7 +588,7 @@ function renderHome() {
       <span class="tool-group"><span class="label" id="pastLabel">Past:</span><span class="segmented" role="group" aria-labelledby="pastLabel">${pastBtn('measured', 'Station', 'SNOTEL station estimate')}${pastBtn('analysis', 'NOAA', 'NOAA snowfall analysis, 4 km grid')}${pastBtn('modeled', 'Modeled', 'Model output, not measured')}</span></span>
       <label class="search"><span class="sr-only">Filter by name or region</span>${icon('search', 'icon-sm')}<input type="search" id="homeSearch" name="q" placeholder="Filter locations…" autocomplete="off" value="${esc(app.query)}"></label>
       ${legend()}</div>${safe('The snowfall table', table)}
-      <p class="note">${pastNote()} Today and later: Open-Meteo forecast for the listed coordinates (for resorts, near the base area; each resort page has mid and summit), calendar days in Colorado time. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
+      <p class="note">${pastNote()} Today and later: Open-Meteo forecast for the listed coordinates (for resorts, near the base area; each resort page has mid and summit), calendar days in Colorado time. The Days columns count from today as day 0: 0–5 is today and the next 4 days, and 5–10 and 10–15 are each the 5 days after that, so they add up rather than overlap. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
     ${win('Snowpack Power Rankings', safe('Snowpack rankings', powerHTML), {iconName: 'star', cls: 'power-win'})}
     ${app.guestbook ? safe('Guestbook', guestbookHTML) : ''}</div>`);
   const sc = view.querySelector('.matrix-scroll');
@@ -661,10 +673,21 @@ function hourlyStrip(d) {
   const start = Math.floor(Date.now() / HOUR) * HOUR, hrs = Array.from({length: 48}, (_, i) => start + (i + 1) * HOUR);
   const pts = hrs.map(t => ({t, h: d?.hours.find(x => x.t === t)}));
   const max = Math.max(imperial() ? 1.27 : 1, ...pts.map(p => p.h?.snow).filter(finite));
-  return `<div class="chart-field"><div class="hourly" role="img" aria-label="Hourly snowfall for the next 48 hours">${pts.map(({t, h}) => {
+  const six = sixHourBlocks(d, start);
+  return `<div class="chart-field">${six.sums}<div class="hourly" role="img" aria-label="Hourly snowfall for the next 48 hours">${pts.map(({t, h}) => {
     const v = h?.snow, tip = `${timeFmt(t, {weekday: 'short'})}: ${finite(v) ? snow(v) : 'no data'}, ${temp(h?.temp)}, gusts ${speed(h?.gust)}`;
     return `<span class="hour ${finite(v) ? '' : 'missing'}" data-tip="${esc(tip)}" style="--h:${finite(v) ? Math.max(0.02, v / max) : 0.08}"></span>`;
-  }).join('')}</div><div class="hour-axis">${[0, 12, 24, 36, 47].map(i => `<span>${esc(timeFmt(hrs[i], {weekday: 'short', minute: undefined}))}</span>`).join('')}</div></div>`;
+  }).join('')}</div>${six.blocks}</div>`;
+}
+/** The next 48 hours as two day totals and eight 6-hour amounts, written out so they read without hovering. A block with a missing hour is a dash. */
+function sixHourBlocks(d, start) {
+  const amount = (a, b) => integrate(d?.hours, start + a * HOUR, start + b * HOUR).value, cell = v => finite(v) ? cellSnow(v) || '0' : '–';
+  const sums = [['Next 24 h', amount(0, 24)], ['24 to 48 h', amount(24, 48)]].map(([l, v]) => `<div class="h48-sum ${heat(v)}"><span>${l}</span><b>${finite(v) ? snow(v) : '–'}</b></div>`).join('');
+  const blocks = Array.from({length: 8}, (_, k) => {
+    const from = start + k * 6 * HOUR, v = amount(k * 6, k * 6 + 6), tip = `${timeFmt(from, {weekday: 'short'})} to ${timeFmt(from + 6 * HOUR)}: ${finite(v) ? snow(v) : 'no data'}`;
+    return `<div class="h48-block ${heat(v)}" data-tip="${esc(tip)}"><b>${cell(v)}</b><span>${esc(timeFmt(from, {weekday: 'short', hour: undefined, minute: undefined}))}<br>${esc(timeFmt(from, {minute: undefined}))}</span></div>`;
+  }).join('');
+  return {sums: `<div class="h48-sums">${sums}</div>`, blocks: `<div class="h48-blocks" role="group" aria-label="Snowfall in 6-hour blocks, in ${imperial() ? 'inches' : 'centimeters'}">${blocks}</div>`};
 }
 
 /* ---- Model scoreboard (from data/model-ranking.json) and comparison ---- */
@@ -822,10 +845,10 @@ function renderResort() {
     <p class="meta">${esc(loc.region)} Colorado · ${loc.kind === 'bc' ? 'Backcountry pass (weather only, not a safety rating)' : 'Resort'}${loc.base ? ` · ${ft(loc.base)} to ${ft(loc.top)}` : ` · ${ft(loc.elev)}`}${d ? ` · forecast grid ${elev(d.elevation)}` : ''}</p></div>
     <div class="actions"><button type="button" class="btn ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}">${icon('star', 'icon-sm')}${fav ? 'Favorite' : 'Add favorite'}</button>${loc.webcam ? `<a class="btn" href="${esc(loc.webcam)}" target="_blank" rel="noopener noreferrer">${icon('cam', 'icon-sm')}Webcams</a>` : ''}<button type="button" class="btn" data-action="share">${icon('link', 'icon-sm')}Copy link</button><a class="btn" href="#/map?focus=${loc.id}">${icon('map', 'icon-sm')}On 3D map</a>${loc.url ? external(loc.url, 'Official site', 'btn') : ''}</div>
   </div>
-  <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${PAST_SHORT[pastSource()]}</span></div><div><dt>Next 5 days</dt><dd>${finite(t.next5) ? snow(t.next5) : '–'}</dd><span>today + 4, forecast</span></div><div><dt>Next 10 days</dt><dd>${finite(t.next10) ? snow(t.next10) : '–'}</dd><span>today + 9, forecast</span></div><div><dt>Next ${CONFIG.futureColumns} days</dt><dd>${finite(t.next15) ? snow(t.next15) : '–'}</dd><span>today + 14, forecast</span></div><div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
+  <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${PAST_SHORT[pastSource()]}</span></div>${[t.next5, t.days5to10, t.days10to15].map((v, i) => `<div><dt>${i ? `Days ${rangeLabel(i)}` : 'Next 5 days'}</dt><dd>${finite(v) ? snow(v) : '–'}</dd><span>${esc(rangeDates(i))}, forecast</span></div>`).join('')}<div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
   ${bands.length ? `<div class="band-switch"><div class="segmented" role="group" aria-label="Forecast elevation">${bands.map(([v, l]) => `<button type="button" data-band="${v}" aria-pressed="${band === v}">${l}</button>`).join('')}</div><p class="note">Base, mid and summit re-run the same coordinates at that elevation (Open-Meteo lapse-rate adjustment). They are not separate stations. The model comparison always uses the grid point.</p></div>` : ''}
   ${win('Daily snowfall', safe('Daily snowfall', () => d ? dailyBars(loc, d, cols) : det?.error || app.errors[loc.id] ? `<div class="notice">The forecast could not load (${esc(det?.error || app.errors[loc.id])}). Nothing is substituted.</div>` : '<div class="skeleton" style="height:180px"></div>'), {iconName: 'table'})}
-  ${win('Next 48 hours', safe('Next 48 hours', () => `<p class="panel-sub">Hourly snowfall; hover or tap a bar for temperature and gusts.</p>${det?.data ? hourlyStrip(det.data) : det?.error ? `<div class="notice">Hourly details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:110px"></div>'}`))}
+  ${win('Next 48 hours', safe('Next 48 hours', () => `<p class="panel-sub">Hourly snowfall, with the amount in each 6-hour block written underneath (${snowUnit()}); hover or tap a bar for temperature and gusts.</p>${det?.data ? hourlyStrip(det.data) : det?.error ? `<div class="notice">Hourly details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:110px"></div>'}`))}
   ${win('Which model to trust', safe('The model scoreboard', scoreboardHTML), {iconName: 'star'})}
   ${win('Model comparison', safe('The model comparison', () => `<p class="panel-sub">${MODELS.length} models at the grid point, sharpest grid first. When they agree, confidence is higher; when they scatter, treat any single number loosely.</p><div class="chart-slot">${modelChart(loc, width)}</div>${modelTable(loc)}`), {iconName: 'table'})}
   ${win('Day by day', safe('The day table', () => `<p class="panel-sub">${band === 'point' ? 'Grid point' : `${bands.find(b => b[0] === band)[1]} scenario`}.</p>${det?.data ? dayTable(loc, det.data, cols) : det?.error ? `<div class="notice">Details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:420px"></div>'}`), {iconName: 'doc'})}
@@ -914,7 +937,7 @@ function mapOptions() {
     layers: app.map.layers, hires: app.hires ? {base: `${GEN_BASE}hires/`, bounds: app.hires.bounds} : null, snowFrame: sf, radarFrame: rf,
     freezingM: freezingFor(shiftDate(localDate(), sf.kind === 'future' ? dayAhead : 0)),
     snotel: TRIPLETS.map(t => ({triplet: t, ...app.snotelMeta[t], depthIn: app.snotel[t]?.SNWD?.filter(x => x.value !== null).at(-1)?.value ?? null})).filter(s => finite(s.lat)),
-    bulletins: app.bulletins, focusId: app.route.focus, snowfx: prefs.anim && !reduceMotion.matches,
+    bulletins: app.bulletins, focusId: app.route.focus, snowfx: prefs.anim && !reduceMotion.matches, view3d: app.map.view3d !== false,
     onSelect: id => { location.hash = `#/resort/${id}`; }};
 }
 function mapLegend() {
@@ -943,6 +966,7 @@ function renderMapSide() {
   set('snowEnd', sf.at(-1) ? `+${Math.round((sf.at(-1).to - Date.now()) / (24 * HOUR))} d` : '');
   set('radarEnd', rf.at(-1)?.kind === 'model' ? `+${Math.round((rf.at(-1).t - Date.now()) / HOUR)} h` : 'now');
   const radarRow = $('radarRow'); if (radarRow) radarRow.hidden = !app.map.layers.radar;
+  document.querySelectorAll('[data-mapview]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.mapview === '3d') === opts.view3d)));
   const fl = opts.freezingM;
   set('freezingLabel', finite(fl) ? `Freezing level ${elev(fl)} (statewide model median for the selected day${src('grid').cached ? `; saved copy from ${ago(src('grid').at)}` : ''})` : 'Freezing level unavailable for the selected day');
   const h = app.hires;
@@ -954,10 +978,12 @@ function renderMap() {
   const view = $('view-map');
   $('winTitle').textContent = '3D Map - ALEC\'S SNOW PAGE';
   if (!view.querySelector('#mapCanvas')) {
+    app.map.view3d ??= !matchMedia('(max-width: 640px)').matches; // phones open flat; the switch on the map changes it
     const L = app.map.layers, box = (k, label) => `<label class="check"><input type="checkbox" data-layer="${k}" ${L[k] ? 'checked' : ''}>${label}</label>`;
     const radarLegend = RADAR_RAMP.filter((_, i) => i % 2 === 0).map(([v, c]) => `<i style="background:${c}"></i><span>${v}</span>`).join('');
     view.innerHTML = `<div class="map-layout">
-      <div>${win('3D snowfall map', `<div class="map-stage"><div id="mapCanvas" class="map-canvas" role="region" aria-label="Interactive 3D map of Colorado snowfall. Drag to pan, right-drag or two fingers to tilt and rotate."></div><canvas class="snow-canvas" id="snowCanvas" aria-hidden="true"></canvas><div class="map-fallback" id="mapFallback" hidden></div>
+      <div>${win('Snowfall map', `<div class="map-stage"><div id="mapCanvas" class="map-canvas" role="region" aria-label="Interactive map of Colorado snowfall. Drag to pan; in 3D, right-drag or two fingers to tilt and rotate."></div><canvas class="snow-canvas" id="snowCanvas" aria-hidden="true"></canvas><div class="map-fallback" id="mapFallback" hidden></div>
+        <div class="segmented view-switch" role="group" aria-label="Map view"><button type="button" data-mapview="2d">2D</button><button type="button" data-mapview="3d">3D</button></div>
         <div class="timebar">
           <div class="tb-row"><button type="button" class="icon-btn" id="playSnow" aria-label="Play snow timeline">${icon('play', 'icon-sm')}</button><span class="tb-name">Snow</span>
             <div class="tb-track"><label class="sr-only" for="snowSlider">Snow time window</label><input type="range" id="snowSlider" min="0" max="1" step="1" value="0"><div class="tb-ticks" aria-hidden="true"><span id="snowStart">-10 d</span><span class="tb-now" id="snowNow">Now</span><span id="snowEnd"></span></div></div></div>
@@ -968,7 +994,7 @@ function renderMap() {
             <p class="tb-label" id="radarLabel" aria-live="polite"></p>
           </div>
         </div></div>
-        <p class="note">Drag to pan. Scroll or pinch to zoom. Right-drag, Ctrl-drag, or two-finger drag to tilt and rotate. Click a column for its forecast.</p>`, {iconName: 'map'})}</div>
+        <p class="note">Drag to pan. Scroll or pinch to zoom. In 3D, right-drag, Ctrl-drag, or two-finger drag to tilt and rotate; 2D is flat and north-up. Click a column for its forecast.</p>`, {iconName: 'map'})}</div>
       <div class="map-side">
         ${win('Controls', `
           <div class="ctl-group"><span class="glabel">Layers</span><div class="layer-list">
@@ -1040,7 +1066,7 @@ function renderAbout() {
   <div class="table-scroll" tabindex="0" aria-label="Model list, scrolls sideways"><table class="data-table"><thead><tr><th scope="col">Model</th><th scope="col">Open-Meteo id</th><th scope="col">From</th><th scope="col">About</th></tr></thead><tbody>${MODELS.map(m => `<tr><th scope="row">${esc(m.name)}</th><td><code>${m.id}</code></td><td>${esc(m.org)}</td><td>${esc(m.about)}</td></tr>`).join('')}</tbody></table></div>
   <p>Spread (largest minus smallest) describes disagreement between models. It is never presented as a probability.</p>
   <h2>3D map</h2>
-  <p><a href="https://maplibre.org/" target="_blank" rel="noopener noreferrer">MapLibre GL JS</a> with <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> basemaps, keyless <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener noreferrer">AWS Terrain Tiles</a> for 3D terrain, ski trails from <a href="https://openskimap.org/" target="_blank" rel="noopener noreferrer">OpenSkiMap</a>, and avalanche zones from CAIC. The snow field comes from free NOAA data that a GitHub Action processes every 6 hours: the past is the <a href="https://www.nohrsc.noaa.gov/snowfall/" target="_blank" rel="noopener noreferrer">NOHRSC National Snowfall Analysis</a> (radar-estimated precipitation adjusted to observed snowfall reports, about 4 km); the future is the <a href="https://vlab.noaa.gov/web/mdl/nbm" target="_blank" rel="noopener noreferrer">National Blend of Models</a> snowfall at 2.5 km, hourly for 2 days then 6-hourly to day 11. The radar timeline shows observed NEXRAD radar for the last 3 hours (<a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener noreferrer">Iowa Environmental Mesonet</a>), then HRRR simulated radar, a 3 km forecast, hourly to 48 hours. Snow colors follow the common NWS snowfall scale. Columns are point values for each location: the chosen past source for the past (the station estimate adds whole calendar days through yesterday, and the time label says so), Open-Meteo for the future. The freezing-level shading uses one statewide median per day, so it is approximate in any single valley.</p>
+  <p><a href="https://maplibre.org/" target="_blank" rel="noopener noreferrer">MapLibre GL JS</a> with <a href="https://openfreemap.org/" target="_blank" rel="noopener noreferrer">OpenFreeMap</a> basemaps, keyless <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener noreferrer">AWS Terrain Tiles</a> for 3D terrain, ski trails from <a href="https://openskimap.org/" target="_blank" rel="noopener noreferrer">OpenSkiMap</a>, and avalanche zones from CAIC. The 2D/3D switch on the map flattens it (no terrain, north up); phones open in 2D. The snow field comes from free NOAA data that a GitHub Action processes every 6 hours: the past is the <a href="https://www.nohrsc.noaa.gov/snowfall/" target="_blank" rel="noopener noreferrer">NOHRSC National Snowfall Analysis</a> (radar-estimated precipitation adjusted to observed snowfall reports, about 4 km); the future is the <a href="https://vlab.noaa.gov/web/mdl/nbm" target="_blank" rel="noopener noreferrer">National Blend of Models</a> snowfall at 2.5 km, hourly for 2 days then 6-hourly to day 11. The radar timeline shows observed NEXRAD radar for the last 3 hours (<a href="https://mesonet.agron.iastate.edu/" target="_blank" rel="noopener noreferrer">Iowa Environmental Mesonet</a>), then HRRR simulated radar, a 3 km forecast, hourly to 48 hours. Snow colors follow the common NWS snowfall scale. Columns are point values for each location: the chosen past source for the past (the station estimate adds whole calendar days through yesterday, and the time label says so), Open-Meteo for the future. The freezing-level shading uses one statewide median per day, so it is approximate in any single valley.</p>
   <h2>When a source is down</h2>
   <p>Each source (forecasts, SNOTEL, CAIC, and each file from the data job) loads on its own, with a ${CONFIG.timeout / 1000} second timeout (${CONFIG.slowTimeout / 1000} seconds for NRCS, which is often slow) and up to ${CONFIG.retries} retries, so one dead source never blanks the page. The status bar names each source’s state. When a fetch fails and nothing newer is on screen, the page shows the last good copy saved in this browser (forecasts up to a day old, other sources up to 3 days), marked with its age; it never fills a gap with zeros. Avalanche bulletins are checked against their own issue and expiry times, so a saved bulletin that has expired shows as expired.</p>
   <h2>Privacy</h2>
@@ -1135,6 +1161,7 @@ document.addEventListener('click', e => {
   else if ('unitsToggle' in ds) { prefs.units = imperial() ? 'metric' : 'imperial'; persist(); applyPrefs(); rerender(); }
   else if (ds.band) location.hash = `#/resort/${app.route.id}${ds.band === 'point' ? '' : '?band=' + ds.band}`;
   else if (ds.focus) mapModule?.focus(ds.focus);
+  else if (ds.mapview) { app.map.view3d = ds.mapview === '3d'; renderMap(); }
   else if (ds.action === 'refresh') { if (!app.busy) refresh(true); }
   else if (ds.action === 'share') share();
   else if (t.id === 'themeButton') { prefs.theme = effectiveTheme() === 'dark' ? 'light' : 'dark'; persist(); applyPrefs(); }

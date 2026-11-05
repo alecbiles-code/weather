@@ -15,6 +15,8 @@ const DEM = {type: 'raster-dem', tiles: ['https://s3.amazonaws.com/elevation-til
 const TRAILS = {type: 'vector', url: 'https://tiles.openskimap.org/openskimap.json'};
 const RADAR_TILE = stamp => `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/ridge::USCOMP-N0Q-${stamp}/{z}/{x}/{y}.png`;
 const HOME = {center: [-106.55, 38.95], pitch: 60, bearing: -14};
+const TERRAIN = {source: 'dem', exaggeration: 1.35};
+const MAX_PITCH = 75;
 const DANGER = ['#9aa5b1', '#5bb85b', '#f2d649', '#f39a3c', '#d9372b', '#1c1c1c'];
 const M_PER_CM = 650; // column height exaggeration: 1 cm of snow draws as 650 m
 const MIN_ZOOM = 6.4; // statewide home view on the narrowest screens (homeCamera)
@@ -34,7 +36,19 @@ function loadLibrary() {
   });
 }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-const homeCamera = el => ({...HOME, zoom: Math.min(8.6, Math.max(MIN_ZOOM, Math.log2(121658 * el.clientWidth / 480000)))});
+const homeCamera = el => camera({...HOME, zoom: Math.min(8.6, Math.max(MIN_ZOOM, Math.log2(121658 * el.clientWidth / 480000)))});
+/** 2D view (opts.view3d false): flat, north up, no terrain; tilt and rotate gestures are off. */
+const is3D = () => opts?.view3d !== false;
+const camera = c => is3D() ? c : {...c, pitch: 0, bearing: 0};
+function applyView(animate) {
+  const on = is3D();
+  map.setMaxPitch(on ? MAX_PITCH : 0); // clamps the current tilt at once when going flat
+  for (const h of [map.dragRotate, map.touchPitch]) on ? h.enable() : h.disable();
+  on ? map.touchZoomRotate.enableRotation() : map.touchZoomRotate.disableRotation();
+  on ? map.keyboard.enableRotation?.() : map.keyboard.disableRotation?.();
+  if (map.getSource('dem')) map.setTerrain(on ? TERRAIN : null);
+  if (animate) { const c = camera({pitch: HOME.pitch, bearing: on ? map.getBearing() : 0}); opts.reduceMotion ? map.jumpTo(c) : map.easeTo({...c, duration: 700}); }
+}
 
 /* ---- GeoJSON builders ---- */
 function disc(lon, lat, km = 3.6) {
@@ -82,7 +96,7 @@ function addOverlays() {
   if (!map.getSource('dem')) map.addSource('dem', DEM);
   if (!map.getSource('dem-shade')) map.addSource('dem-shade', DEM);
   if (!map.getSource('dem-relief')) map.addSource('dem-relief', DEM);
-  map.setTerrain({source: 'dem', exaggeration: 1.35});
+  map.setTerrain(is3D() ? TERRAIN : null);
   map.setSky({'sky-color': dark ? '#0b1a2c' : '#a9cbe8', 'horizon-color': dark ? '#22364d' : '#e6eef5', 'fog-color': dark ? '#000000' : '#f3f6f9',
     'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.25, 'atmosphere-blend': 0.6});
   map.addLayer({id: 'hillshade', type: 'hillshade', source: 'dem-shade', paint: {'hillshade-shadow-color': dark ? '#000000' : '#4a5a6a', 'hillshade-exaggeration': dark ? 0.55 : 0.35, 'hillshade-highlight-color': dark ? '#3a4a5c' : '#ffffff'}}, below);
@@ -216,11 +230,12 @@ export async function mountMap(container, canvas, options) {
   window.__powcastMap = () => map; // for automated checks only
   opts = options; snowCanvas = canvas;
   await loadLibrary();
-  map = new maplibregl.Map({container, style: STYLES[opts.theme], ...homeCamera(container), maxPitch: 75, attributionControl: false, canvasContextAttributes: {antialias: true}});
+  map = new maplibregl.Map({container, style: STYLES[opts.theme], ...homeCamera(container), maxPitch: is3D() ? MAX_PITCH : 0, attributionControl: false, canvasContextAttributes: {antialias: true}});
+  applyView(false);
   map.addControl(new maplibregl.AttributionControl({compact: true}), 'top-left'); // bottom edge holds the timeline bar
   map.addControl(new maplibregl.NavigationControl({visualizePitch: true}), 'top-right');
   map.addControl(new maplibregl.FullscreenControl(), 'top-right');
-  map.addControl(new maplibregl.TerrainControl({source: 'dem', exaggeration: 1.35}), 'top-right');
+  map.addControl(new maplibregl.TerrainControl(TERRAIN), 'top-right');
   map.on('style.load', addOverlays);
   map.on('error', e => console.warn('Map:', e.error?.message || e));
   // The OpenFreeMap dark style references a few icons its sprite lacks; draw them as nothing.
@@ -232,7 +247,7 @@ export async function mountMap(container, canvas, options) {
     let done = false;
     const token = tourToken; // any gesture, list click or tour in the meantime wins over this deferred focus
     const go = () => { if (done) return; done = true; map.off('sourcedata', onData); if (opts.focusId && token === tourToken) focus(opts.focusId); };
-    const onData = e => { if (e.sourceId === 'dem' && map.isSourceLoaded('dem')) go(); };
+    const onData = e => { if (!is3D() || (e.sourceId === 'dem' && map.isSourceLoaded('dem'))) go(); }; // flat: no terrain to wait for
     map.on('sourcedata', onData);
     setTimeout(go, 6000);
   }
@@ -252,6 +267,7 @@ export function updateMap(options) {
   const prev = opts;
   opts = options; // kept even before the map exists, so the first-mount focus uses current values
   if (!map) return;
+  if (options.view3d !== prev.view3d) applyView(true);
   const themeChanged = options.theme !== prev.theme, windowChanged = options.windowLabel !== prev.windowLabel || options.unit !== prev.unit;
   if (themeChanged) { map.setStyle(STYLES[opts.theme], {diff: false}); return; } // style.load re-adds every overlay; a diff only warns and rebuilds
   applyData(); // isStyleLoaded() is false while tiles load, which silently dropped updates; applyData guards itself
@@ -264,7 +280,7 @@ export function pause(on) {
   if (!map) return;
   if (!on) { map.resize(); restartFlakes(); }
 }
-const flyOrJump = camera => opts.reduceMotion ? map.jumpTo(camera) : map.flyTo({...camera, duration: 2200, essential: false});
+const flyOrJump = c => opts.reduceMotion ? map.jumpTo(camera(c)) : map.flyTo({...camera(c), duration: 2200, essential: false});
 export function focus(id) {
   const f = opts?.features.find(x => x.loc.id === id);
   if (!map || !f) return;

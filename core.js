@@ -75,6 +75,14 @@ export function integrate(hours, start, end, field = 'snow') {
   return {value: complete ? total : null, partial: covered ? total : null, coverage, complete};
 }
 export function dailyTotal(hours, date, field = 'snow') { const [a, b] = dayBounds(date); return integrate(hours, a, b, field).value; }
+/**
+ * Snow in back-to-back ranges of Colorado calendar days counted from startDate (day 0), one integrate() window
+ * each: edges [0, 5, 10, 15] gives days 0-5, 5-10 and 10-15 (end exclusive), not running totals. A range with
+ * any missing hour is null.
+ */
+export function rangeTotals(hours, startDate, edges, field = 'snow') {
+  return edges.slice(1).map((end, i) => integrate(hours, zonedEpoch(shiftDate(startDate, edges[i])), zonedEpoch(shiftDate(startDate, end)), field).value);
+}
 /** Instantaneous samples inside [start, end); null unless every hour is present. */
 export function sampleStat(hours, start, end, field, fn = 'max') {
   if (!Array.isArray(hours)) return null;

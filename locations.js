@@ -95,13 +95,15 @@ const SAMPLES = {
 };
 export const LOCS = ORIGINAL_LOCATIONS.map(l => ({...l, id: l.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), url: LINKS[l.name] || null, webcam: WEBCAMS[l.name] || null, sample: SAMPLES[l.name] || null}));
 
-// Open-Meteo model ids verified against Colorado coordinates on 2026-10-14.
+// Open-Meteo model ids verified against Colorado coordinates on 2026-10-14; re-probed 2026-11-04 (Vail): every id
+// returns current snowfall. NAM (ncep_nam_conus) was dropped: NOAA retired it on 2026-11-03 and Open-Meteo's last
+// NAM run is 2026-11-03 06Z. RRFS (ncep_rrfs_conus), its operational replacement, took its place.
 // km: grid spacing from Open-Meteo's model documentation (checked 2026-10-15).
 // Excluded: ids that return no snowfall here (GraphCast, BOM ACCESS, KMA) and regional
 // "seamless" ids that silently fall back to ECMWF outside Europe (MET Norway, KNMI, DMI).
 export const MODELS = [
   {id: 'ncep_hrrr_conus', km: 3, name: 'HRRR', org: 'NOAA', kind: 'High-res regional', note: '3 km, about 48 h', about: "NOAA's 3 km model, rerun every hour. Sees individual ridges and storm timing best, but only 2 days out."},
-  {id: 'ncep_nam_conus', km: 3, name: 'NAM', org: 'NOAA', kind: 'High-res regional', note: '3 km CONUS nest, 60 h', about: "NOAA's other 3 km model. Similar detail to HRRR, updated every 6 hours, 2.5 days out."},
+  {id: 'ncep_rrfs_conus', km: 3, name: 'RRFS', org: 'NOAA', kind: 'High-res regional', note: '3 km, 84 h', about: "NOAA's new 3 km model, operational since November 2026, replacing the NAM. Similar detail to HRRR, 3.5 days out."},
   {id: 'cmc_gem_rdps', km: 10, name: 'GEM Regional', org: 'Environment Canada', kind: 'Regional', note: 'RDPS, about 3.5 days', about: "Canada's regional model. Mid-resolution view of the next 3 to 4 days."},
   {id: 'ncep_nbm_conus', km: 2.5, name: 'NBM', org: 'NOAA', kind: 'Statistical blend', note: 'National Blend of Models, 2.5 km', about: "NOAA's blend of many models with bias correction; the National Weather Service's starting point. Its snowfall uses variable snow ratios, so it often reads higher."},
   {id: 'ncep_gfs_global', km: 13, name: 'GFS', org: 'NOAA', kind: 'Global', note: '16 days', about: "NOAA's flagship global model. The workhorse for days 3 to 16."},
