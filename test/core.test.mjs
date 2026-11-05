@@ -1,7 +1,7 @@
 // Run: node --test test/core.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HOUR, integrate, dailyTotal, dayBounds, zonedEpoch, sumComplete, normalizeForecast, normalizeModels, spreadStats, kucheraSLR, slrEstimate, binIndex, horizon, measuredDay, qualityLabel, parseCSV, dailyPick, waterYearStart, seasonSnow, percentileRank,
+import {HOUR, integrate, dailyTotal, rangeTotals, dayBounds, zonedEpoch, sumComplete, normalizeForecast, normalizeModels, spreadStats, kucheraSLR, slrEstimate, binIndex, horizon, measuredDay, qualityLabel, parseCSV, dailyPick, waterYearStart, seasonSnow, percentileRank,
   parseProviderDate, bulletinWindow, parseStationData, analysisByDate, withRetry, retryableStatus, request, parseRoute, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F} from '../core.js';
 import {parseValue, classify, nearestBoard, lastReports, miles} from '../scripts/build-boards.mjs';
 import {LOCS} from '../locations.js';
@@ -23,6 +23,28 @@ test('calendar days follow Colorado DST (25 hour day on 2026-11-01)', () => {
   const hours = hoursFrom(a, Array(25).fill(0.4));
   assert.ok(Math.abs(dailyTotal(hours, '2026-11-01') - 10) < 1e-9);
   assert.equal(dailyTotal(hours.slice(0, 24), '2026-11-01'), null);
+});
+
+test('forecast ranges are back-to-back day buckets, not running totals', () => {
+  // 15 Colorado days from 2026-10-25, across the 25-hour day on 2026-11-01; day k snows k + 1 cm, spread over its hours.
+  const start = '2026-10-25', a = zonedEpoch(start), hours = [];
+  for (let k = 0; k < 15; k++) {
+    const [d0, d1] = dayBounds(new Date(Date.UTC(2026, 9, 25 + k, 12)).toISOString().slice(0, 10)), n = (d1 - d0) / HOUR;
+    for (let i = 1; i <= n; i++) hours.push({t: d0 + i * HOUR, snow: (k + 1) / n});
+  }
+  assert.equal(hours[0].t, a + HOUR);
+  const [r0, r5, r10] = rangeTotals(hours, start, [0, 5, 10, 15]);
+  const sum = (from, to) => Array.from({length: to - from}, (_, i) => from + i + 1).reduce((s, v) => s + v, 0);
+  assert.ok(Math.abs(r0 - sum(0, 5)) < 1e-9); // days 0-4: 1 + 2 + 3 + 4 + 5
+  assert.ok(Math.abs(r5 - sum(5, 10)) < 1e-9); // days 5-9 only, not 0-9
+  assert.ok(Math.abs(r10 - sum(10, 15)) < 1e-9); // days 10-14 only, not 0-14
+  assert.ok(Math.abs(r0 + r5 + r10 - rangeTotals(hours, start, [0, 15])[0]) < 1e-9); // the buckets add up to the whole
+  // One missing hour on day 7 blanks only the 5-10 bucket; a short forecast blanks only the last one.
+  const gap = hours.map(h => h.t === zonedEpoch('2026-11-01') + 3 * HOUR ? {...h, snow: null} : h);
+  assert.deepEqual(rangeTotals(gap, start, [0, 5, 10, 15]).map(v => v === null), [false, true, false]);
+  assert.deepEqual(rangeTotals(hours.slice(0, -1), start, [0, 5, 10, 15]).map(v => v === null), [false, false, true]);
+  assert.deepEqual(rangeTotals(null, start, [0, 5, 10, 15]), [null, null, null]); // no forecast: missing, never zero
+  assert.equal(rangeTotals(hours, start, [0, 3])[0], 6); // the Storm Watch 3-day window: days 0-2
 });
 
 test('sumComplete refuses partial totals', () => {
