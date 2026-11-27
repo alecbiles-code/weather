@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {HOUR, integrate, dailyTotal, rangeTotals, dayBounds, zonedEpoch, sumComplete, normalizeForecast, normalizeModels, spreadStats, kucheraSLR, slrEstimate, binIndex, horizon, measuredDay, qualityLabel, parseCSV, dailyPick, waterYearStart, seasonSnow, percentileRank,
-  parseProviderDate, bulletinWindow, parseStationData, analysisByDate, withRetry, retryableStatus, request, parseRoute, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F} from '../core.js';
+  parseProviderDate, bulletinWindow, parseStationData, analysisByDate, boardByDate, withRetry, retryableStatus, request, parseRoute, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F, FORECAST_SNOW_RATIO,
+  containsPoint, httpUrl} from '../core.js';
 import {parseValue, classify, nearestBoard, lastReports, miles} from '../scripts/build-boards.mjs';
 import {LOCS} from '../locations.js';
 
@@ -53,16 +54,22 @@ test('sumComplete refuses partial totals', () => {
   assert.equal(sumComplete([]), null);
 });
 
-test('normalizeForecast converts inches and keeps nulls', () => {
-  const d = normalizeForecast({hourly: {time: [3600, 7200], snowfall: [1, null], temperature_2m: [-5, null]}, hourly_units: {snowfall: 'inch', temperature_2m: '°C'}});
-  assert.equal(d.hours[0].snow, 2.54);
+test('normalizeForecast turns snow water into snow at the forecast ratio and keeps nulls', () => {
+  const swe = 'snowfall_water_equivalent';
+  const d = normalizeForecast({hourly: {time: [3600, 7200], [swe]: [1, null], temperature_2m: [-5, null]}, hourly_units: {[swe]: 'mm', temperature_2m: '°C'}});
+  assert.equal(FORECAST_SNOW_RATIO, 10);
+  assert.equal(d.hours[0].snow, 1); // 1 mm of water at 10:1 is 1 cm of snow
   assert.equal(d.hours[1].snow, null);
   assert.equal(d.hours[0].temp, -5);
-  assert.throws(() => normalizeForecast({hourly: {time: [1, 2], snowfall: [0, 0]}, hourly_units: {snowfall: 'mm'}}));
+  assert.ok(Math.abs(normalizeForecast({hourly: {time: [3600, 7200], [swe]: [0.1, 0]}, hourly_units: {[swe]: 'inch'}}).hours[0].snow - 2.54) < 1e-9);
+  // Open-Meteo's 7:1 snowfall field is not accepted in place of snow water, and an unknown unit is an error.
+  assert.throws(() => normalizeForecast({hourly: {time: [1, 2], snowfall: [0, 0]}, hourly_units: {snowfall: 'cm'}}));
+  assert.throws(() => normalizeForecast({hourly: {time: [1, 2], [swe]: [0, 0]}, hourly_units: {[swe]: 'cm'}}));
 });
 
 test('normalizeModels reads per-model suffixed keys', () => {
-  const m = normalizeModels({hourly: {time: [3600, 7200, 10800], snowfall_a: [1, 2, null], snowfall_b: [0, 0, 0]}, hourly_units: {snowfall_a: 'cm', snowfall_b: 'cm'}}, ['a', 'b', 'c']);
+  const m = normalizeModels({hourly: {time: [3600, 7200, 10800], snowfall_water_equivalent_a: [1, 2, null], snowfall_water_equivalent_b: [0, 0, 0], snowfall_c: [5, 5, 5]},
+    hourly_units: {snowfall_water_equivalent_a: 'mm', snowfall_water_equivalent_b: 'mm', snowfall_c: 'cm'}}, ['a', 'b', 'c']);
   assert.equal(m.a[1].snow, 2);
   assert.equal(m.c, null);
   assert.equal(horizon(m.a), 7200 * 1000);
@@ -81,10 +88,10 @@ test('Kuchera ratio rises as the column cools', () => {
   assert.ok(kucheraSLR(0) < 12);
   assert.equal(kucheraSLR(-60), 30);
   const start = Date.UTC(2026, 0, 1);
-  const est = slrEstimate([{t: start + HOUR, snow: 0.7, temp: -12, t600: -14, t500: -25}], start, start + HOUR);
+  const est = slrEstimate([{t: start + HOUR, snow: 1, temp: -12, t600: -14, t500: -25}], start, start + HOUR); // 1 cm at 10:1 is 1 mm of water
   assert.ok(Math.abs(est.liquidMm - 1) < 1e-9);
   assert.ok(est.ratio > 12);
-  assert.equal(slrEstimate([{t: start + HOUR, snow: 0.7}], start, start + HOUR), null);
+  assert.equal(slrEstimate([{t: start + HOUR, snow: 1}], start, start + HOUR), null);
 });
 
 test('color bins', () => {
@@ -267,7 +274,18 @@ test('analysis days are filed under the local date their 12Z window starts', () 
   assert.deepEqual(analysisByDate(undefined), {});
 });
 
-test('every resort has an on-mountain analysis point near its listed point; passes use the pass', () => {
+test('a snow-board report is filed under the night before its date, as the NOAA analysis is', () => {
+  const b = boardByDate([{date: '2026-12-03', snowIn: 2, trace: false, accumulated: false}, {date: '2026-12-02', snowIn: 0, trace: true, accumulated: false},
+    {date: '2026-12-01', snowIn: null, trace: false, accumulated: true}, {date: '2026-11-30', snowIn: null, trace: false, accumulated: false}, {date: 'garbage', snowIn: 1}]);
+  assert.deepEqual(Object.keys(b).sort(), ['2026-11-29', '2026-11-30', '2026-12-01', '2026-12-02']);
+  assert.deepEqual(b['2026-12-02'], {cm: 5.08, trace: false, accumulated: false});
+  assert.deepEqual(b['2026-12-01'], {cm: 0, trace: true, accumulated: false});
+  assert.deepEqual(b['2026-11-30'], {cm: null, trace: false, accumulated: true}); // a multi-day total is not one day's snow
+  assert.equal(b['2026-11-29'].cm, null); // no report stays missing, never zero
+  assert.deepEqual(boardByDate(undefined), {});
+});
+
+test('every resort has an on-mountain forecast and analysis point near its listed point; passes use the pass', () => {
   for (const l of LOCS) {
     if (l.kind !== 'resort') { assert.equal(l.sample, null); continue; }
     assert.ok(Array.isArray(l.sample), l.name);
@@ -359,9 +377,28 @@ test('nearest board is the closest active observer within the distance and eleva
   assert.equal(b.station.name, 'GOOD');
   assert.equal(b.station.elevDiffFt, -100);
   assert.equal(nearestBoard(loc, stations.slice(0, 3)), null);
-  const reports = lastReports([['1.0', '5'], ['T', '5'], ['M', 'M'], ['2.0A', '7']], ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04']);
+  const reports = lastReports([['1.0', '5'], ['T', '5'], ['M', 'M'], ['2.0A', '7']], ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04'], 3);
   assert.deepEqual(reports.map(r => r.date), ['2026-01-04', '2026-01-03', '2026-01-02']); // newest first
   assert.equal(reports[0].accumulated, true);
   assert.equal(reports[1].snowIn, null);
   assert.equal(reports[2].trace, true);
+});
+
+test('a location matches a CAIC zone only inside it, never in a hole or outside', () => {
+  const square = [[-107, 39], [-106, 39], [-106, 40], [-107, 40], [-107, 39]], hole = [[-106.6, 39.4], [-106.4, 39.4], [-106.4, 39.6], [-106.6, 39.6], [-106.6, 39.4]];
+  const poly = {geometry: {type: 'Polygon', coordinates: [square, hole]}};
+  assert.equal(containsPoint(poly, [-106.8, 39.2]), true);
+  assert.equal(containsPoint(poly, [-106.5, 39.5]), false); // inside the hole
+  assert.equal(containsPoint(poly, [-105.5, 39.5]), false);
+  const multi = {geometry: {type: 'MultiPolygon', coordinates: [[square], [[[-105, 39], [-104, 39], [-104, 40], [-105, 39]]]]}};
+  assert.equal(containsPoint(multi, [-104.2, 39.5]), true);
+  assert.equal(containsPoint({geometry: null}, [-106.8, 39.2]), false);
+});
+
+test('feed links are used only when they are http(s)', () => {
+  const home = 'https://avalanche.state.co.us/';
+  assert.equal(httpUrl('https://avalanche.state.co.us/forecasts/x', home), 'https://avalanche.state.co.us/forecasts/x');
+  assert.equal(httpUrl(' javascript:alert(1)', home), home);
+  assert.equal(httpUrl('data:text/html,hi', home), home);
+  assert.equal(httpUrl(undefined, home), home);
 });
