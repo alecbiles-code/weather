@@ -1,6 +1,6 @@
 // ALEC'S SNOW PAGE: static Colorado snowfall viewer. No build step, no backend, no API keys.
 import {HOUR, TZ, finite, numeric, round, localDate, shiftDate, zonedEpoch, dayBounds, bulletinWindow, request, parseRoute,
-  integrate, dailyTotal, rangeTotals, sampleStat, sumComplete, normalizeForecast, normalizeModels, horizon, spreadStats,
+  integrate, dailyTotal, rangeTotals, sampleStat, sumComplete, normalizeForecast, normalizeModels, horizon, spreadStats, rangeSpread,
   slrEstimate, qualityLabel, FORECAST_SNOW_RATIO, measuredDay, analysisByDate, boardByDate, parseStationData, containsPoint, binIndex, SNOW_RAMP, RADAR_RAMP,
   waterYearStart, seasonSnow, percentileRank, httpUrl, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F} from './core.js';
 import {LOCS, MODELS} from './locations.js';
@@ -163,6 +163,8 @@ function dailyFor(loc, d, cols = columns()) {
 }
 /** Forecast ranges in days from today (day 0): each column is the snow in its own range, not a running total. */
 const RANGES = [0, 5, 10, CONFIG.futureColumns];
+/** Open-Meteo best_match at every Colorado point checked (2026-11-27): hour for hour the same as gfs_seamless. */
+const BEST_MATCH_ABOUT = 'Open-Meteo’s best match here is NOAA’s HRRR for about the first 2 days, then a single GFS run.';
 const rangeLabel = i => `${RANGES[i]}–${RANGES[i + 1]}`;
 /** Calendar dates of forecast range i, for example "Nov 9 to Nov 13". */
 const rangeDates = (i, today = localDate()) => [shiftDate(today, RANGES[i]), shiftDate(today, RANGES[i + 1] - 1)].map(d => fmt(d, {month: 'short', day: 'numeric'})).join(' to ');
@@ -578,7 +580,7 @@ function renderHome() {
       <table class="matrix ${summary ? 'summary' : ''}">
         <caption class="sr-only">Daily snowfall in ${imperial() ? 'inches' : 'centimeters'} by location. Past days are the ${PAST_NAMES[pastSource()]}. Select a column header to sort.</caption>
         <thead><tr>${sortHeader('name', 'Location', 'name-cell')}${head}${sortHeader('past10', 'Past', 'total first', '10 days')}${sortHeader('next5', 'Days', 'total', rangeLabel(0))}${sortHeader('days5to10', 'Days', 'total', rangeLabel(1))}${sortHeader('days10to15', 'Days', 'total', rangeLabel(2))}${sortHeader('quality', 'Quality', 'qual', 'next 5 d')}</tr>
-        ${summary ? '' : `<tr class="band-row"><td class="name-cell"></td><td colspan="${CONFIG.pastDays}" class="band past" title="Past days: ${PAST_NAMES[pastSource()]}"><span class="band-text">${PAST_BAND[pastSource()]}</span></td><td colspan="${CONFIG.futureColumns}" class="band">Forecast (Open-Meteo blend)</td><td colspan="5" class="band total first">Totals, ${snowUnit()}</td></tr>
+        ${summary ? '' : `<tr class="band-row"><td class="name-cell"></td><td colspan="${CONFIG.pastDays}" class="band past" title="Past days: ${PAST_NAMES[pastSource()]}"><span class="band-text">${PAST_BAND[pastSource()]}</span></td><td colspan="${CONFIG.futureColumns}" class="band" title="${esc(BEST_MATCH_ABOUT)}">Forecast (Open-Meteo best match)</td><td colspan="5" class="band total first">Totals, ${snowUnit()}</td></tr>
         ${stormRow(rows, cols)}`}</thead>
         <tbody>${rows.map((r, i) => matrixRow(r, dayCols, favCount && i === favCount - 1 && favCount < rows.length)).join('')}</tbody>
       </table>
@@ -596,7 +598,7 @@ function renderHome() {
       <span class="tool-group"><span class="label" id="pastLabel">Past:</span><span class="segmented" role="group" aria-labelledby="pastLabel">${pastBtn('measured', 'Station', 'SNOTEL station estimate')}${pastBtn('analysis', 'NOAA', 'NOAA snowfall analysis, 4 km grid')}${pastBtn('modeled', 'Modeled', 'Model output, not measured')}</span></span>
       <label class="search"><span class="sr-only">Filter by name or region</span>${icon('search', 'icon-sm')}<input type="search" id="homeSearch" name="q" placeholder="Filter locations…" autocomplete="off" value="${esc(app.query)}"></label>
       ${legend()}</div>${safe('The snowfall table', table)}
-      <p class="note">${pastNote()} Today and later: Open-Meteo forecast, for resorts at the middle of the ski area (each resort page also has base and summit), as model snow water at ${FORECAST_SNOW_RATIO}:1, calendar days in Colorado time. The Days columns count from today as day 0: 0–5 is today and the next 4 days, and 5–10 and 10–15 are each the 5 days after that, so they add up rather than overlap. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
+      <p class="note">${pastNote()} Today and later: Open-Meteo forecast, for resorts at the middle of the ski area (each resort page also has base and summit), as model snow water at ${FORECAST_SNOW_RATIO}:1, calendar days in Colorado time. ${BEST_MATCH_ABOUT} So days 5–10 and 10–15 are one GFS run, which can miss a storm other models show; each resort page lists every model for the same ranges. The Days columns count from today as day 0: 0–5 is today and the next 4 days, and 5–10 and 10–15 are each the 5 days after that, so they add up rather than overlap. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
     ${win('Snowpack Power Rankings', safe('Snowpack rankings', powerHTML), {iconName: 'star', cls: 'power-win'})}
     ${app.guestbook ? safe('Guestbook', guestbookHTML) : ''}</div>`);
   const sc = view.querySelector('.matrix-scroll');
@@ -744,11 +746,12 @@ function modelTable(loc) {
   if (!m?.series && (!m || m.loading)) return '<div class="skeleton" style="height:320px" aria-label="Loading model comparison"></div>';
   if (!m.series) return `<div class="notice">Model comparison could not load: ${esc(m.error)}. No values are substituted.</div>`;
   const failed = m.error ? `<div class="notice">The latest refresh failed (${esc(m.error)}). Showing the models retrieved ${esc(timeFmt(m.at, {month: 'short', day: 'numeric'}))}.</div>` : '';
-  const now = Date.now(), days = Array.from({length: 10}, (_, i) => shiftDate(localDate(), i)), wins = [['24 h', 24], ['72 h', 72], ['7 days', 168], ['10 days', 240]];
+  const now = Date.now(), today = localDate(), days = Array.from({length: 10}, (_, i) => shiftDate(today, i)), rolling = [24, 72];
+  const wins = [...rolling.map(h => ['Next', `${h} h`]), ...RANGES.slice(1).map((_, i) => ['Days', rangeLabel(i)])];
   const p1 = topPick('day1')?.id, p3 = topPick('day3')?.id;
-  const blend = app.data[loc.id] ? {id: 'best_match', name: 'Blend', about: 'Open-Meteo best match; used on the homepage.', hours: app.data[loc.id].hours} : null;
+  const blend = app.data[loc.id] ? {id: 'best_match', name: 'Best match', about: BEST_MATCH_ABOUT, hours: app.data[loc.id].hours} : null;
   const all = [...(blend ? [blend] : []), ...modelOrder().map(def => ({...def, hours: m.series?.[def.id] || null}))];
-  const vals = r => ({days: days.map(dt => r.hours ? dailyTotal(r.hours, dt) : null), wins: wins.map(([, h]) => r.hours ? integrate(r.hours, now, now + h * HOUR).value : null)});
+  const vals = r => ({days: days.map(dt => r.hours ? dailyTotal(r.hours, dt) : null), wins: [...rolling.map(h => r.hours ? integrate(r.hours, now, now + h * HOUR).value : null), ...rangeTotals(r.hours, today, RANGES)]});
   const table = all.map(r => ({r, v: vals(r)}));
   const cell = (v, first = false) => `<td class="num${first ? ' first' : ''} ${finite(v) ? heat(v) : ''}">${finite(v) ? cellSnow(v) || '0' : '<span class="muted" title="Beyond this model’s range or missing">–</span>'}</td>`;
   const body = table.map(({r, v}) => {
@@ -761,11 +764,11 @@ function modelTable(loc) {
   const stats = Array.from({length: days.length + wins.length}, (_, i) => ({i, ...spreadStats(modelsOnly.map(x => valueAt(x, i)))}));
   const sRow = (label, f) => `<tr><th scope="row">${label}</th>${stats.map(s => `<td class="num${s.i === days.length ? ' first' : ''}">${f(s)}</td>`).join('')}</tr>`;
   return `${failed}<div class="table-scroll" tabindex="0" aria-label="Model comparison, scrolls sideways"><table class="data-table models">
-    <thead><tr><th scope="col">Model (sharpest grid first)</th>${days.map((dt, i) => `<th scope="col" class="num">${i === 0 ? 'Today' : esc(fmt(dt, {weekday: 'short'}))}<small>${esc(fmt(dt, {day: 'numeric'}))}</small></th>`).join('')}${wins.map(([l], i) => `<th scope="col" class="num${i === 0 ? ' first' : ''}">Next<small>${l}</small></th>`).join('')}</tr></thead>
+    <thead><tr><th scope="col">Model (sharpest grid first)</th>${days.map((dt, i) => `<th scope="col" class="num">${i === 0 ? 'Today' : esc(fmt(dt, {weekday: 'short'}))}<small>${esc(fmt(dt, {day: 'numeric'}))}</small></th>`).join('')}${wins.map(([top, sub], i) => `<th scope="col" class="num${i === 0 ? ' first' : ''}">${top}<small>${sub}</small></th>`).join('')}</tr></thead>
     <tbody>${body}</tbody>
     <tfoot>${sRow('Range (min to max)', s => s.n >= 2 ? `${cellSnow(s.min) || '0'}–${cellSnow(s.max) || '0'}` : '–')}${sRow('Median', s => finite(s.median) ? cellSnow(s.median) || '0' : '–')}${sRow('Models reporting', s => s.n || '–')}${sRow(`Models ≥ ${oneInch()}`, s => s.n ? `${modelsOnly.filter(x => valueAt(x, s.i) >= 2.54).length} of ${s.n}` : '–')}${sRow('Spread', s => `<span class="spread ${s.label.toLowerCase().replace(/\s+/g, '-')}">${s.label}</span>`)}</tfoot>
   </table></div>
-  <p class="note">Calendar-day totals in Colorado time; rolling windows start now. A dash means the model does not reach that far, never zero. <b>Spread is disagreement between models, not a probability.</b> "Models ≥ ${oneInch()}" is a count of models, not a chance of snow. The blend row is for reference and is not part of the spread. Every row is the model’s snow water at the same fixed ${FORECAST_SNOW_RATIO}:1, so rows differ in water and rain-snow line, not in assumed snow ratio. Retrieved ${esc(timeFmt(m.at))}.</p>`;
+  <p class="note">Calendar-day totals in Colorado time. Next 24 h and 72 h start now; the Days columns are the homepage ranges (day 0 is today). A dash means the model does not reach that far, never zero. <b>Spread is disagreement between models, not a probability.</b> "Models ≥ ${oneInch()}" is a count of models, not a chance of snow. The best-match row is what the homepage shows; it is not part of the spread. Every row is the model’s snow water at the same fixed ${FORECAST_SNOW_RATIO}:1, so rows differ in water and rain-snow line, not in assumed snow ratio. Retrieved ${esc(timeFmt(m.at))}.</p>`;
 }
 let chartState = null; // geometry of the last drawn model chart, for the crosshair readout
 function modelChart(loc, width) {
@@ -773,7 +776,7 @@ function modelChart(loc, width) {
   if (!m?.series) return '';
   const now = Math.floor(Date.now() / HOUR) * HOUR, span = 240, W = Math.max(320, width), H = W < 560 ? 220 : 280;
   const pad = {l: 40, r: 12, t: 12, b: 34}, iw = W - pad.l - pad.r, ih = H - pad.t - pad.b, p1 = topPick('day1')?.id;
-  const rows = [...MODELS.map(def => ({...def, hours: m.series[def.id]})), ...(app.data[loc.id] ? [{id: 'best_match', name: 'Blend', hours: app.data[loc.id].hours}] : [])];
+  const rows = [...MODELS.map(def => ({...def, hours: m.series[def.id]})), ...(app.data[loc.id] ? [{id: 'best_match', name: 'Best match', hours: app.data[loc.id].hours}] : [])];
   const series = rows.filter(r => r.hours).map(r => {
     const byT = new Map(r.hours.map(h => [h.t, h.snow]));
     let acc = 0; const pts = [];
@@ -794,7 +797,7 @@ function modelChart(loc, width) {
     ${[...series].sort((a, b) => (a.id === 'best_match' || a.id === p1) - (b.id === 'best_match' || b.id === p1)).map(s => `<path class="${cls(s)}" data-model="${s.id}" d="${path(s)}"/>`).join('')}
     <line class="crosshair" id="crosshair" x1="0" x2="0" y1="${pad.t}" y2="${pad.t + ih}" visibility="hidden"/>
     <rect class="hit" x="${pad.l}" y="${pad.t}" width="${iw}" height="${ih}"/>
-  </svg><figcaption><span class="key"><i class="key-line"></i>Each model</span><span class="key"><i class="key-line blend"></i>Blend (homepage)</span>${p1 ? `<span class="key"><i class="key-line pick"></i>Best 1-day scorer</span>` : ''}<span>Cumulative ${snowUnit()} from now. Hover or tap the chart for values; hover or tap a table row to highlight its line.</span></figcaption></figure>`;
+  </svg><figcaption><span class="key"><i class="key-line"></i>Each model</span><span class="key"><i class="key-line blend"></i>Best match (homepage)</span>${p1 ? `<span class="key"><i class="key-line pick"></i>Best 1-day scorer</span>` : ''}<span>Cumulative ${snowUnit()} from now. Hover or tap the chart for values; hover or tap a table row to highlight its line.</span></figcaption></figure>`;
 }
 function chartReadout(evt) {
   const c = chartState, svg = evt.target.closest('svg');
@@ -854,7 +857,8 @@ function renderResort() {
   if (!loc) { $('winTitle').textContent = "Location not found - ALEC'S SNOW PAGE"; setHTML(view, win('Error', `<p>Location not found. <a href="#/">Back to all locations</a></p>`)); return; }
   const band = loc.base && ['base', 'mid', 'summit'].includes(app.route.band) ? app.route.band : 'point';
   const det = app.detail[`${loc.id}:${band}`], d = det?.data || (band === 'point' ? app.data[loc.id] : null), cols = columns(), t = totals(loc, d, cols);
-  const fav = prefs.favs.includes(loc.id), q5 = forecastQuality(d, localDate(), 5), depth = app.snotel[loc.snotel]?.SNWD?.filter(x => x.value !== null).at(-1);
+  const fav = prefs.favs.includes(loc.id), q5 = forecastQuality(d, localDate(), 5), ms = app.models[loc.id]?.series,
+    spread = ms ? rangeSpread(MODELS.map(m => ms[m.id]), localDate(), RANGES) : [], depth = app.snotel[loc.snotel]?.SNWD?.filter(x => x.value !== null).at(-1);
   const bands = loc.base ? [['point', loc.sample ? 'Ski area' : 'Grid point'], ['base', `Base ${ft(loc.base)}`], ['mid', 'Mid'], ['summit', `Summit ${ft(loc.top)}`]] : [];
   const keepY = window.scrollY, width = Math.min(1100, (view.querySelector('.chart-slot')?.clientWidth || Math.min(window.innerWidth - 60, 1100)) - 12);
   $('winTitle').textContent = `${loc.name} - ALEC'S SNOW PAGE`;
@@ -866,7 +870,7 @@ function renderResort() {
     <p class="meta">${esc(loc.region)} Colorado · ${loc.kind === 'bc' ? 'Backcountry pass (weather only, not a safety rating)' : 'Resort'}${loc.base ? ` · ${ft(loc.base)} to ${ft(loc.top)}` : ` · ${ft(loc.elev)}`}${d ? ` · forecast grid ${elev(d.elevation)}` : ''}</p></div>
     <div class="actions"><button type="button" class="btn ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}">${icon('star', 'icon-sm')}${fav ? 'Favorite' : 'Add favorite'}</button>${loc.webcam ? `<a class="btn" href="${esc(loc.webcam)}" target="_blank" rel="noopener noreferrer">${icon('cam', 'icon-sm')}Webcams</a>` : ''}<button type="button" class="btn" data-action="share">${icon('link', 'icon-sm')}Copy link</button><a class="btn" href="#/map?focus=${loc.id}">${icon('map', 'icon-sm')}On 3D map</a>${loc.url ? external(loc.url, 'Official site', 'btn') : ''}</div>
   </div>
-  <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${PAST_SHORT[pastSource()]}</span></div>${[t.next5, t.days5to10, t.days10to15].map((v, i) => `<div><dt>${i ? `Days ${rangeLabel(i)}` : 'Next 5 days'}</dt><dd>${finite(v) ? snow(v) : '–'}</dd><span>${esc(rangeDates(i))}, forecast</span></div>`).join('')}<div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
+  <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${PAST_SHORT[pastSource()]}</span></div>${[t.next5, t.days5to10, t.days10to15].map((v, i) => `<div><dt>${i ? `Days ${rangeLabel(i)}` : 'Next 5 days'}</dt><dd>${finite(v) ? snow(v) : '–'}</dd><span>${esc(rangeDates(i))}, best match${spread[i]?.n >= 2 ? `. ${spread[i].n} models: median ${snow(spread[i].median)}, ${snow(spread[i].min)} to ${snow(spread[i].max)}` : ''}</span></div>`).join('')}<div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
   ${bands.length ? `<div class="band-switch"><div class="segmented" role="group" aria-label="Forecast elevation">${bands.map(([v, l]) => `<button type="button" data-band="${v}" aria-pressed="${band === v}">${l}</button>`).join('')}</div><p class="note">${loc.sample ? 'Ski area is the center of the ski area at its own terrain height. ' : ''}Base, mid and summit re-run the same point at that elevation (Open-Meteo lapse-rate adjustment). They are not separate stations. The model comparison always uses ${loc.sample ? 'the ski-area point' : 'the grid point'}.</p></div>` : ''}
   ${win('Daily snowfall', safe('Daily snowfall', () => d ? dailyBars(loc, d, cols) : det?.error || app.errors[loc.id] ? `<div class="notice">The forecast could not load (${esc(det?.error || app.errors[loc.id])}). Nothing is substituted.</div>` : '<div class="skeleton" style="height:180px"></div>'), {iconName: 'table'})}
   ${win('Next 48 hours', safe('Next 48 hours', () => `<p class="panel-sub">Hourly snowfall, with the amount in each 6-hour block written underneath (${snowUnit()}); hover or tap a bar for temperature and gusts.</p>${det?.data ? hourlyStrip(det.data) : det?.error ? `<div class="notice">Hourly details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:110px"></div>'}`))}
@@ -1079,7 +1083,7 @@ function renderAbout() {
   <p>Season snow is the station estimate added up from October 1 (the start of the NRCS water year) through each station’s latest reading. In the board comparison above, the same rule caught 84% of board totals over six winters. Resorts measure on their own stakes, usually higher on the mountain, so their numbers can still differ; the totals are best for comparing resorts with each other. A total with missing station days is marked ≥, because it can only be too low.</p>
   <p>The Snowpack Power Rankings follow the <a href="https://www.wcc.nrcs.usda.gov/ftpref/support/states/CO/products/#state=co&element=wteq" target="_blank" rel="noopener noreferrer">NRCS Colorado snowpack products</a>. A scheduled job pulls every past daily snow water equivalent (SWE) reading for each station; the page then places today’s live reading among the readings for the same calendar date in every past water year, counting ties as half. 50th is a typical year for the date. At least 10 years of record are required, and bare ground on a date that is usually bare is not ranked, because it says nothing. Early in the season a few tenths of an inch move the percentile a lot. % of median is the NRCS median for the date.</p>
   <h2>Forecasts</h2>
-  <p>From the free <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener noreferrer">Open-Meteo forecast API</a> (best-match blend) at each location’s coordinates, summed into calendar days in Colorado time, including the 23 and 25 hour days at daylight-saving changes. A day with any missing hour is shown as missing. For resorts the point is the center of the ski area (between base and summit, the same point as the NOAA analysis), not the base area: Open-Meteo moves each model’s temperature to the point’s terrain height, and at a base near 6,900 ft that can turn the same forecast water into rain. Each resort page can also re-run it at base and summit elevation. Snow is each model’s forecast snow water times ${FORECAST_SNOW_RATIO}, the same fixed ratio for every model and the one the station estimate was checked with against snow boards; Open-Meteo’s own snowfall field uses 7:1 for most models, which reads about 30% lower for the same water. It is a model estimate, not a measurement.</p>
+  <p>From the free <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener noreferrer">Open-Meteo forecast API</a> (its best match) at each location’s coordinates, summed into calendar days in Colorado time, including the 23 and 25 hour days at daylight-saving changes. A day with any missing hour is shown as missing. For resorts the point is the center of the ski area (between base and summit, the same point as the NOAA analysis), not the base area: Open-Meteo moves each model’s temperature to the point’s terrain height, and at a base near 6,900 ft that can turn the same forecast water into rain. Each resort page can also re-run it at base and summit elevation. ${BEST_MATCH_ABOUT} One run of one model has little skill 5 to 15 days out, so the resort page also shows each model and their median for the same ranges; a far-range number that differs from other sites is usually a different model, not an error. Snow is each model’s forecast snow water times ${FORECAST_SNOW_RATIO}, the same fixed ratio for every model and the one the station estimate was checked with against snow boards; Open-Meteo’s own snowfall field uses 7:1 for most models, which reads about 30% lower for the same water. It is a model estimate, not a measurement.</p>
   <h2>Snow quality</h2>
   <p>Quality is the snow-to-water ratio: Blower 17:1 or higher, Powder 13 to 17, Average 10 to 13, Heavy under 10. For past days it is measured at the SNOTEL station (depth gain divided by water gain, shown when the depth rose at least 2 in and the high was at or below ${SNOTEL_WATER_MAX_F}°F, since warmer water may include rain; on days where the water term set the estimate it would only repeat the assumed ratio, so none is shown). For forecast days it is an estimate: the forecast columns convert snow water at a fixed ${FORECAST_SNOW_RATIO}:1, and the site re-estimates the ratio from the warmest temperature between the 2 m point and 500 hPa using a Kuchera-style rule. It is a guide to light versus heavy snow, not a measurement.</p>
   <h2>Which model to trust</h2>

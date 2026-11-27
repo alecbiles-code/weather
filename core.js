@@ -212,6 +212,11 @@ export function spreadStats(values) {
   const label = max < 0.25 ? 'All dry' : spread <= Math.max(1.3, 0.35 * median) ? 'Tight' : spread > Math.max(5, median) ? 'Wide' : 'Moderate';
   return {n: v.length, min, max, median, spread, label};
 }
+/** spreadStats of each rangeTotals range across models; a model that does not reach a whole range is left out, never zero. */
+export function rangeSpread(seriesList, startDate, edges) {
+  const totals = seriesList.map(h => rangeTotals(h, startDate, edges));
+  return edges.slice(1).map((_, i) => spreadStats(totals.map(t => t[i])));
+}
 
 /* ---- Snow-to-liquid estimate (labeled estimate, never an observation). ----
  * Forecast snow is snow water at FORECAST_SNOW_RATIO, so the water is recovered exactly.
