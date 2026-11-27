@@ -1,5 +1,5 @@
 // Builds data/boards.json for the location pages: for each location, the nearest human-read snow
-// board (NWS COOP or CoCoRaHS, via RCC-ACIS) and its last 3 daily reports of new snow and depth.
+// board (NWS COOP or CoCoRaHS, via RCC-ACIS) and its last 11 daily reports of new snow and depth.
 // Run by .github/workflows/data.yml every 6 hours. By hand: node scripts/build-boards.mjs
 import {writeFile, mkdir, access} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
@@ -12,7 +12,7 @@ const MAX_MILES = 10;          // farther boards say little about the location's
 const MAX_ELEV_DIFF_FT = 1500; // station elevation vs the resort base or pass elevation
 const SELECT_DAYS = 60;        // look-back window for judging whether an observer is active
 const MIN_REPORTS = 30;        // active = a snowfall report on at least half the days in the window
-const SHOW_DAYS = 3;           // today and the 2 days before
+const SHOW_DAYS = 11;          // today and the 10 days before: one report per past day in the day table
 const EARTH_MI = 3958.8;       // mean Earth radius in miles
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);

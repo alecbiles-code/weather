@@ -24,7 +24,7 @@ function points() {
 }
 async function fetchChunk(pts) {
   const p = new URLSearchParams({latitude: pts.map(x => x.lat).join(','), longitude: pts.map(x => x.lon).join(','),
-    hourly: 'snowfall,precipitation,freezing_level_height', forecast_days: '16', timezone: TZ, timeformat: 'unixtime'});
+    hourly: 'snowfall_water_equivalent,precipitation,freezing_level_height', forecast_days: '16', timezone: TZ, timeformat: 'unixtime'});
   for (let attempt = 1; attempt <= 5; attempt++) {
     // Retry both HTTP errors and dropped connections; a single network blip must not fail the run.
     try {
@@ -61,7 +61,7 @@ async function main() {
     if (i + CHUNK < pts.length) await sleep(PAUSE_MS);
   }
   const out = {generatedAt: new Date().toISOString(), source: 'Open-Meteo forecast API, best_match', grid: {...GRID, cols, rows},
-    units: {daily: 'tenths of cm, calendar day in America/Denver', precip: 'tenths of mm in the hour ending at each time', freezingLevelM: 'meters'},
+    units: {daily: 'tenths of cm (model snow water at 10:1), calendar day in America/Denver', precip: 'tenths of mm in the hour ending at each time', freezingLevelM: 'meters'},
     days, daily, hours: hours.map(t => t / 1000), precip, freezingLevelM: freezing.map(f => { const m = median(f); return finite(m) ? Math.round(m) : null; })};
   await mkdir(OUT, {recursive: true});
   await writeFile(new URL('grid.json', OUT), JSON.stringify(out));
