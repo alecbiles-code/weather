@@ -1,7 +1,7 @@
 // MapLibre GL 3D map: keyless basemap and terrain, snowfall columns and field, radar timeline,
 // avalanche zones, SNOTEL pins, ski trails, freezing-level shading, falling snow, storm tour.
 // Loaded on demand so the homepage never pays for the map library.
-import {bulletinWindow, finite, SNOW_RAMP} from './core.js';
+import {bulletinWindow, finite, httpUrl, SNOW_RAMP} from './core.js';
 
 const VERSION = '5.24.0';
 const CDN = `https://unpkg.com/maplibre-gl@${VERSION}/dist/`;
@@ -31,7 +31,7 @@ function loadLibrary() {
     const js = Object.assign(document.createElement('script'), {src: CDN + 'maplibre-gl.js', integrity: SRI.js, crossOrigin: 'anonymous'});
     const timer = setTimeout(() => reject(new Error('map library timed out')), 30000); // a stalled CDN would leave a blank map
     js.onload = () => { clearTimeout(timer); if (window.maplibregl) resolve(); else reject(new Error('library did not initialize')); };
-    js.onerror = () => { clearTimeout(timer); reject(new Error('map library could not be downloaded')); };
+    js.onerror = () => { clearTimeout(timer); css.remove(); js.remove(); reject(Object.assign(new Error('map library could not be downloaded'), {retryable: true})); };
     document.head.append(css, js);
   });
 }
@@ -72,7 +72,7 @@ function avalancheCollection() {
   const now = Date.now();
   return {type: 'FeatureCollection', features: (opts.bulletins || []).filter(f => f.geometry).map(f => {
     const p = f.properties || {}; // bulletin times are UTC (see bulletinWindow in core.js)
-    return {type: 'Feature', geometry: f.geometry, properties: {name: p.name || 'CAIC zone', lvl: bulletinWindow(p, now).level, link: p.link || 'https://avalanche.state.co.us/'}};
+    return {type: 'Feature', geometry: f.geometry, properties: {name: p.name || 'CAIC zone', lvl: bulletinWindow(p, now).level, link: httpUrl(p.link, 'https://avalanche.state.co.us/')}};
   })};
 }
 function snotelCollection() {

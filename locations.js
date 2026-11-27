@@ -66,11 +66,12 @@ const WEBCAMS = {
   'Sunlight Mountain': 'https://sunlightmtn.com/explore/mountain-status/#cams',
   'Ski Cooper': 'https://www.skicooper.com/weather-webcams/'
 };
-// Where the scheduled job reads the NOAA snowfall analysis for each resort: the center of the ski area's
-// landuse=winter_sports outline in OpenStreetMap (way id in the comment), from Overpass on 2026-10-21.
-// Each was checked against the Copernicus 90 m terrain model (Open-Meteo elevation API) to sit between the
-// resort's base and summit; the listed lat/lon above sit at the base area, which the research report showed
-// changes analysis season totals by up to 2.8x. Passes are sampled at the pass itself.
+// Where the site reads each resort's forecast (app.js forecastPoint) and the scheduled job reads the NOAA snowfall
+// analysis: the center of the ski area's landuse=winter_sports outline in OpenStreetMap (way id in the comment), from
+// Overpass on 2026-10-21. Each was checked against the Copernicus 90 m terrain model (Open-Meteo elevation API) to sit
+// between the resort's base and summit; the listed lat/lon above sit at the base area, which the research report
+// showed changes analysis season totals by up to 2.8x, and where Open-Meteo's temperature downscaling turns forecast
+// snow to rain (Steamboat GFS on 2026-11-26: 1.0 in at the base, 9.0 in here). Passes are sampled at the pass itself.
 const SAMPLES = {
   'Vail': [39.6003, -106.3472], // way 531009607, 10,568 ft
   'Beaver Creek': [39.5990, -106.5368], // way 531009608, 9,715 ft

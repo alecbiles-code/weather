@@ -151,7 +151,17 @@ export function parseRoute(hash, ids) {
 
 /* ---- Open-Meteo parsing ---- */
 const FIELDS = {precipitation: 'precip', temperature_2m: 'temp', temperature_600hPa: 't600', temperature_500hPa: 't500', wind_speed_10m: 'wind', wind_gusts_10m: 'gust', freezing_level_height: 'freezing', rain: 'rain', weather_code: 'code', precipitation_probability: 'pop'};
-function snowFactor(unit) { if (unit === 'cm') return 1; if (unit === 'inch') return 2.54; throw new Error('Unrecognized snowfall unit'); }
+/**
+ * Forecast snow is the model's snow water (snowfall_water_equivalent) at FORECAST_SNOW_RATIO, the same for every model.
+ * Open-Meteo's own snowfall field uses a fixed 7:1 for most models, native ratios for a few (NBM, RRFS), and for
+ * CMA GRAPES reads about a tenth of its snow water (checked 2026-11-26), so it is not comparable across models.
+ * 10:1 is a calibration knob: it is the ratio that the station estimate (SNOTEL_SNOW_RATIO) was checked with
+ * against Colorado snow boards (84% of board snow), and the convention most snow maps use for model snow.
+ */
+export const FORECAST_SNOW_RATIO = 10;
+const SNOW_CM_PER_MM = FORECAST_SNOW_RATIO / 10;
+const SWE = 'snowfall_water_equivalent';
+function snowFactor(unit) { if (unit === 'mm') return SNOW_CM_PER_MM; if (unit === 'inch') return 25.4 * SNOW_CM_PER_MM; throw new Error('Unrecognized snow water unit'); }
 function checkTimeline(hours) {
   if (hours.some((h, i) => i > 0 && h.t - hours[i - 1].t < HOUR)) throw new Error('Duplicate or non-hourly forecast timestamps');
   return hours;
@@ -159,14 +169,14 @@ function checkTimeline(hours) {
 export function normalizeForecast(raw, {fetchedAt = Date.now(), variant = 'point'} = {}) {
   const h = raw?.hourly, u = raw?.hourly_units || {};
   if (!Array.isArray(h?.time) || h.time.length < 2) throw new Error('Forecast response has no hourly timeline');
-  if (!Array.isArray(h.snowfall)) throw new Error('Forecast response has no snowfall');
-  const sf = snowFactor(u.snowfall);
+  if (!Array.isArray(h[SWE])) throw new Error('Forecast response has no snow water');
+  const sf = snowFactor(u[SWE]);
   if (u.temperature_2m && u.temperature_2m !== '\u00b0C') throw new Error('Unexpected temperature unit');
   if (u.wind_speed_10m && !['km/h', 'kmh'].includes(u.wind_speed_10m)) throw new Error('Unexpected wind unit');
   const nonneg = n => n !== null && n >= 0 ? n : null;
   const hours = h.time.map((t, i) => {
     if (!finite(t)) throw new Error('Expected UTC epoch timestamps');
-    const s = nonneg(numeric(h.snowfall[i]));
+    const s = nonneg(numeric(h[SWE][i]));
     const row = {t: t * 1000, snow: s === null ? null : s * sf};
     for (const [key, name] of Object.entries(FIELDS)) if (h[key]) {
       const v = numeric(h[key][i]);
@@ -176,13 +186,13 @@ export function normalizeForecast(raw, {fetchedAt = Date.now(), variant = 'point
   }).sort((a, b) => a.t - b.t);
   return {hours: checkTimeline(hours), fetchedAt, lat: numeric(raw.latitude), lon: numeric(raw.longitude), elevation: numeric(raw.elevation), variant};
 }
-/** Multi-model response: Open-Meteo suffixes each variable with the model id. */
+/** Multi-model response: Open-Meteo suffixes each variable with the model id. Snow as in normalizeForecast. */
 export function normalizeModels(raw, ids) {
   const h = raw?.hourly, u = raw?.hourly_units || {};
   if (!Array.isArray(h?.time)) throw new Error('Model response has no hourly timeline');
   const out = {};
   for (const id of ids) {
-    const key = `snowfall_${id}`;
+    const key = `${SWE}_${id}`;
     if (!Array.isArray(h[key])) { out[id] = null; continue; }
     const sf = snowFactor(u[key]);
     out[id] = checkTimeline(h.time.map((t, i) => { const v = numeric(h[key][i]); return {t: t * 1000, snow: v !== null && v >= 0 ? v * sf : null}; }).sort((a, b) => a.t - b.t));
@@ -204,11 +214,10 @@ export function spreadStats(values) {
 }
 
 /* ---- Snow-to-liquid estimate (labeled estimate, never an observation). ----
- * Open-Meteo snowfall uses a fixed 0.7 cm per mm of water (7:1).
+ * Forecast snow is snow water at FORECAST_SNOW_RATIO, so the water is recovered exactly.
  * Kuchera-style ratio from the warmest temperature between the 2 m point and 500 hPa:
  *   T > 271.16 K: 12 + 2 (271.16 - T); otherwise 12 + (271.16 - T); clamped to 3..30.
  */
-export const OPEN_METEO_CM_PER_MM = 0.7;
 export function kucheraSLR(tMaxC) {
   if (!finite(tMaxC)) return null;
   const k = tMaxC + 273.15, d = 271.16 - k;
@@ -220,7 +229,7 @@ export function slrEstimate(hours, start, end) {
     if (h.t <= start || h.t > end || !finite(h.snow) || h.snow <= 0) continue;
     const slr = kucheraSLR(Math.max(...[h.temp, h.t600, h.t500].filter(finite)));
     if (slr === null) return null; // no temperature at all for a snowing hour
-    const mm = h.snow / OPEN_METEO_CM_PER_MM;
+    const mm = h.snow / SNOW_CM_PER_MM;
     liquid += mm; adjusted += mm * slr / 10; any = true;
   }
   if (!any) return {liquidMm: 0, snowCm: 0, ratio: null};
@@ -302,6 +311,19 @@ export function analysisByDate(days) {
   return out;
 }
 
+/**
+ * Observer snow-board reports (boards.json `reports`) by day-table date. A report dated D is read about 7 AM and
+ * covers the 24 h before it, so it is filed under D - 1: the same night as that date's NOAA analysis row.
+ * cm is null for a missing report and for a multi-day total (accumulated), which is not one day's snow; trace is 0.
+ */
+export function boardByDate(reports) {
+  const out = {};
+  for (const r of Array.isArray(reports) ? reports : []) {
+    if (validDate(r?.date)) out[shiftDate(r.date, -1)] = {cm: finite(r.snowIn) && r.snowIn >= 0 ? round(r.snowIn * 2.54, 2) : null, trace: !!r.trace, accumulated: !!r.accumulated};
+  }
+  return out;
+}
+
 /** First day of the water year (Oct 1) that contains `date`; NRCS season totals start here. */
 export function waterYearStart(date) { const y = +date.slice(0, 4); return `${date.slice(5) >= '10-01' ? y : y - 1}-10-01`; }
 /**
@@ -356,6 +378,9 @@ export function dailyPick(list, date) {
   for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
   return list[order[day % list.length]];
 }
+
+/** A link from a third-party feed, only if it is http(s); anything else (javascript:, data:) becomes the fallback. */
+export const httpUrl = (url, fallback) => typeof url === 'string' && /^https?:\/\//i.test(url.trim()) ? url.trim() : fallback;
 
 /* ---- CAIC polygons ---- */
 function pointInRing([x, y], ring) {

@@ -1,8 +1,8 @@
 // ALEC'S SNOW PAGE: static Colorado snowfall viewer. No build step, no backend, no API keys.
 import {HOUR, TZ, finite, numeric, round, localDate, shiftDate, zonedEpoch, dayBounds, bulletinWindow, request, parseRoute,
   integrate, dailyTotal, rangeTotals, sampleStat, sumComplete, normalizeForecast, normalizeModels, horizon, spreadStats,
-  slrEstimate, qualityLabel, measuredDay, analysisByDate, parseStationData, containsPoint, binIndex, SNOW_RAMP, RADAR_RAMP,
-  waterYearStart, seasonSnow, percentileRank, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F} from './core.js';
+  slrEstimate, qualityLabel, FORECAST_SNOW_RATIO, measuredDay, analysisByDate, boardByDate, parseStationData, containsPoint, binIndex, SNOW_RAMP, RADAR_RAMP,
+  waterYearStart, seasonSnow, percentileRank, httpUrl, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F} from './core.js';
 import {LOCS, MODELS} from './locations.js';
 import {esc, initChrome, setTicker, loadLists, skierHTML, factHTML, todaysSkier, todaysFact, loadGuestbook, guestbookHTML, submitGuestbook} from './retro.js';
 
@@ -31,8 +31,8 @@ const GEN_BASE = (() => {
   const user = location.hostname.match(/^([^.]+)\.github\.io$/)?.[1], repo = location.pathname.split('/').filter(Boolean)[0];
   return user && repo ? `https://raw.githubusercontent.com/${user}/${repo}/data/` : 'data/';
 })();
-const HOME_HOURLY = 'snowfall,temperature_2m,temperature_600hPa,temperature_500hPa';
-const DETAIL_HOURLY = 'snowfall,temperature_2m,temperature_600hPa,temperature_500hPa,wind_speed_10m,wind_gusts_10m,freezing_level_height,rain,weather_code';
+const HOME_HOURLY = 'snowfall_water_equivalent,temperature_2m,temperature_600hPa,temperature_500hPa';
+const DETAIL_HOURLY = 'snowfall_water_equivalent,temperature_2m,temperature_600hPa,temperature_500hPa,wind_speed_10m,wind_gusts_10m,freezing_level_height,rain,weather_code';
 
 /* ---- Preferences: units, theme, favorites, animations, past source. Device-local only. ---- */
 const STORE = 'powcast-v3';
@@ -222,10 +222,12 @@ async function loadSource(name, load, apply, {force = false, save = true} = {}) 
 }
 /** Back online: retry every source that failed, without waiting for its retry window. */
 function retryFailed() {
+  if (mapState === 'retry') mapState = 'retry-now';
   for (const s of Object.values(app.src)) if (s.error && !s.tried?.loading) s.tried = null;
   for (const recs of [app.detail, app.models]) for (const [k, r] of Object.entries(recs)) if (r?.error && !r.loading) recs[k] = {...r, at: 0};
   refresh(false, true);
   if (app.route.view === 'resort') renderResort(); // reloads the page's details through due()
+  else if (app.route.view === 'map') renderMap(); // retries a failed map download
 }
 /** Status words for a source, and whether they need a warning. */
 function sourceState(name, label) {
@@ -244,8 +246,14 @@ function bandElevation(loc, band) {
   const f = band === 'base' ? loc.base : band === 'summit' ? loc.top : band === 'mid' ? (loc.base + loc.top) / 2 : null;
   return finite(f) ? String(round(f / 3.28084, 1)) : null;
 }
+/**
+ * Where the forecast is read: for resorts, the center of the ski area (SAMPLES in locations.js, between base and summit),
+ * not the base-area coordinates. Open-Meteo moves temperature to the point's terrain height, so at a base near
+ * 6,900 ft the same model water can turn to rain (Steamboat GFS, 2026-11-26: 1.0 in at the base, 9.0 in on the mountain).
+ */
+const forecastPoint = l => l.sample || [l.lat, l.lon];
 function forecastURL(locs, {hourly = HOME_HOURLY, band = 'point', models = null, pastDays = CONFIG.pastDays} = {}) {
-  const p = new URLSearchParams({latitude: locs.map(l => l.lat).join(','), longitude: locs.map(l => l.lon).join(','), hourly,
+  const p = new URLSearchParams({latitude: locs.map(l => forecastPoint(l)[0]).join(','), longitude: locs.map(l => forecastPoint(l)[1]).join(','), hourly,
     past_days: String(pastDays), forecast_days: String(CONFIG.forecastDays), timeformat: 'unixtime', timezone: TZ,
     temperature_unit: 'celsius', wind_speed_unit: 'kmh', precipitation_unit: 'mm'});
   if (models) p.set('models', models.join(','));
@@ -259,14 +267,14 @@ const due = rec => !rec || (!rec.loading && Date.now() - (rec.at || 0) >= (rec.f
 /* ---- Homepage forecasts, cached on the device ---- */
 const COMPACT = ['snow', 'temp', 't600', 't500'];
 function restoreCache() {
-  const cached = readStore(`${STORE}-forecasts-2`, {});
+  const cached = readStore(`${STORE}-forecasts-3`, {});
   for (const [id, d] of Object.entries(cached || {})) {
     if (!byId[id] || !finite(d?.fetchedAt) || Date.now() - d.fetchedAt > 24 * HOUR || !Array.isArray(d.h)) continue;
     app.data[id] = {fetchedAt: d.fetchedAt, elevation: d.elevation, hours: d.h.map(([t, ...v]) => Object.fromEntries([['t', t], ...COMPACT.map((k, i) => [k, v[i]])]))};
   }
 }
 function saveCache() {
-  writeStore(`${STORE}-forecasts-2`, Object.fromEntries(Object.entries(app.data).map(([id, d]) => [id, {fetchedAt: d.fetchedAt, elevation: d.elevation, h: d.hours.map(h => [h.t, ...COMPACT.map(k => h[k] ?? null)])}])));
+  writeStore(`${STORE}-forecasts-3`, Object.fromEntries(Object.entries(app.data).map(([id, d]) => [id, {fetchedAt: d.fetchedAt, elevation: d.elevation, h: d.hours.map(h => [h.t, ...COMPACT.map(k => h[k] ?? null)])}])));
 }
 const fresh = d => !!d && Date.now() - d.fetchedAt <= CONFIG.staleMs;
 async function loadGroup(group) {
@@ -588,7 +596,7 @@ function renderHome() {
       <span class="tool-group"><span class="label" id="pastLabel">Past:</span><span class="segmented" role="group" aria-labelledby="pastLabel">${pastBtn('measured', 'Station', 'SNOTEL station estimate')}${pastBtn('analysis', 'NOAA', 'NOAA snowfall analysis, 4 km grid')}${pastBtn('modeled', 'Modeled', 'Model output, not measured')}</span></span>
       <label class="search"><span class="sr-only">Filter by name or region</span>${icon('search', 'icon-sm')}<input type="search" id="homeSearch" name="q" placeholder="Filter locations…" autocomplete="off" value="${esc(app.query)}"></label>
       ${legend()}</div>${safe('The snowfall table', table)}
-      <p class="note">${pastNote()} Today and later: Open-Meteo forecast for the listed coordinates (for resorts, near the base area; each resort page has mid and summit), calendar days in Colorado time. The Days columns count from today as day 0: 0–5 is today and the next 4 days, and 5–10 and 10–15 are each the 5 days after that, so they add up rather than overlap. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
+      <p class="note">${pastNote()} Today and later: Open-Meteo forecast, for resorts at the middle of the ski area (each resort page also has base and summit), as model snow water at ${FORECAST_SNOW_RATIO}:1, calendar days in Colorado time. The Days columns count from today as day 0: 0–5 is today and the next 4 days, and 5–10 and 10–15 are each the 5 days after that, so they add up rather than overlap. A dash means missing, never zero. Quality is an estimate from forecast temperatures. Favorites stay pinned to the top.</p>`, {iconName: 'table', cls: 'snow-win'})}
     ${win('Snowpack Power Rankings', safe('Snowpack rankings', powerHTML), {iconName: 'star', cls: 'power-win'})}
     ${app.guestbook ? safe('Guestbook', guestbookHTML) : ''}</div>`);
   const sc = view.querySelector('.matrix-scroll');
@@ -657,17 +665,30 @@ function dailyBars(loc, d, cols) {
     return `<div class="bar-col ${c.today ? 'today' : ''}" data-tip="${esc(tip)}"><span class="bar-val">${finite(v) && v >= 0.25 ? cellSnow(v) : ''}</span><span class="bar ${finite(v) ? (m ? 'measured' : '') : 'missing'}" style="--h:${finite(v) ? Math.max(0.01, v / max) : 0.06}"></span><span class="bar-day">${c.today ? `<span class="wide-only">Today</span><span class="narrow-only">${day}</span>` : day}</span><span class="bar-date">${fmt(c.date, {day: 'numeric'})}</span></div>`;
   }).join('')}</div></div><p class="note">${pastKey}<span class="key-sw"></span>Forecast. Today is outlined. In ${imperial() ? 'inches' : 'centimeters'}.</p>`;
 }
+/** The day-table board cell: T for a trace, a dash with a mark for a multi-day total, a dash when missing. */
+function boardCell(r) {
+  if (r?.accumulated) return '<span data-tip="A multi-day total was reported, so this day cannot be split out">–<sup>a</sup></span>';
+  return r?.trace ? 'T' : finite(r?.cm) ? snow(r.cm) : '–';
+}
+/** What the day table's board column is, for its note. */
+function boardNote(loc) {
+  const x = app.boards?.locations?.[loc.id], st = x?.station;
+  if (!app.boards) return ` "Snow board" ${notBuilt('boards') ? 'appears once the scheduled data job has run' : src('boards').error ? 'could not load' : 'is loading'}.`;
+  if (!st) return ' "Snow board": no observer snow board near this location reports regularly, so the column shows dashes.';
+  const ref = loc.kind === 'resort' ? 'the base' : 'the pass';
+  return ` "Snow board" is the morning report of new snow on the observer board at ${esc(st.name)} (${esc(st.network)}, ${st.miles} mi away, ${Math.abs(st.elevDiffFt).toLocaleString('en-US')} ft ${st.elevDiffFt >= 0 ? 'above' : 'below'} ${ref}), shown on the night it covers, about 7 AM to 7 AM, close to the NOAA analysis window. It is measured by a person, but at the board, not on the slopes. T is a trace; <sup>a</sup> marks a multi-day total.`;
+}
 function dayTable(loc, d, cols) {
-  const an = analysisFor(loc);
+  const an = analysisFor(loc), bd = boardByDate(app.boards?.locations?.[loc.id]?.reports);
   const rows = cols.map(c => {
     const [a, b] = dayBounds(c.date), h = d?.hours, v = dailyTotal(h, c.date), m = c.past ? measuredFor(loc, c.date) : null, nv = c.past ? an?.[c.date] : null;
     const est = !c.past && h && integrate(h, a, b).complete ? slrEstimate(h, a, b) : null;
     const quality = m?.quality ? `${qual(m.quality)} <span class="muted">${Math.round(m.ratio)}:1 measured</span>` : est?.ratio && est.liquidMm >= 0.5 ? `${qual(qualityLabel(est.ratio))} <span class="muted">${Math.round(est.ratio)}:1 est.</span>` : '';
     const station = c.past ? (m ? `<span data-tip="${esc(stationWhy(m))}">${snow(m.cm)}${m.method === 'water' ? '<sup>w</sup>' : ''}</span>` : '–') : '';
-    return `<tr class="${c.past ? 'past' : ''} ${c.today ? 'today' : ''}"><th scope="row">${c.today ? 'Today' : esc(fmt(c.date, {weekday: 'short', month: 'short', day: 'numeric'}))}</th><td class="num ${heat(v)}">${finite(v) ? snow(v) : '–'}</td><td class="num">${est ? snow(est.snowCm) : ''}</td><td class="num">${station}</td><td class="num">${c.past ? (finite(nv) ? snow(nv) : '–') : ''}</td><td>${quality}</td><td class="num">${temp(sampleStat(h, a, b, 'temp'))} / ${temp(sampleStat(h, a, b, 'temp', 'min'))}</td><td class="num">${speed(sampleStat(h, a, b, 'gust'))}</td><td class="num">${elev(sampleStat(h, a, b, 'freezing', 'min'))}</td><td class="num">${rainFmt(integrate(h, a, b, 'rain').value)}</td></tr>`;
+    return `<tr class="${c.past ? 'past' : ''} ${c.today ? 'today' : ''}"><th scope="row">${c.today ? 'Today' : esc(fmt(c.date, {weekday: 'short', month: 'short', day: 'numeric'}))}</th><td class="num ${heat(v)}">${finite(v) ? snow(v) : '–'}</td><td class="num">${est ? snow(est.snowCm) : ''}</td><td class="num">${station}</td><td class="num">${c.past ? (finite(nv) ? snow(nv) : '–') : ''}</td><td class="num">${c.past ? boardCell(bd[c.date]) : ''}</td><td>${quality}</td><td class="num">${temp(sampleStat(h, a, b, 'temp'))} / ${temp(sampleStat(h, a, b, 'temp', 'min'))}</td><td class="num">${speed(sampleStat(h, a, b, 'gust'))}</td><td class="num">${elev(sampleStat(h, a, b, 'freezing', 'min'))}</td><td class="num">${rainFmt(integrate(h, a, b, 'rain').value)}</td></tr>`;
   }).join('');
-  return `<div class="table-scroll" tabindex="0" aria-label="Daily details, scrolls sideways"><table class="data-table"><thead><tr><th scope="col">Day</th><th scope="col" class="num">Snow (model)</th><th scope="col" class="num">Snow (ratio est.)</th><th scope="col" class="num">Station est.<small>SNOTEL</small></th><th scope="col" class="num">NOAA analysis<small>4 km grid</small></th><th scope="col">Snow quality</th><th scope="col" class="num">High / low</th><th scope="col" class="num">Max gust</th><th scope="col" class="num">Lowest freezing level</th><th scope="col" class="num">Rain</th></tr></thead><tbody>${rows}</tbody></table></div>
-  <p class="note">"Station est." is the SNOTEL station estimate: the larger of the depth gain and ${SNOTEL_SNOW_RATIO} times the water gain (the water counts only on days with a high at or below ${SNOTEL_WATER_MAX_F}°F); <sup>w</sup> marks days where the water term won. "NOAA analysis" is the NOHRSC snowfall analysis at one 4 km cell${loc.sample ? ' on the ski area' : ' at this point'}, the 24 h from 5 AM (6 AM in daylight time); an analysis, not a measurement.${esc(analysisStatus())} Snow quality is the snow-to-water ratio: Blower 17:1 or more, Powder 13 to 17, Average 10 to 13, Heavy under 10. Past days use the ratio measured at the SNOTEL station (depth gain over water gain, shown on cold days when the depth rose at least 2 in). Forecast days are an <b>estimate</b> from a Kuchera-style rule using the warmest of the 2 m, 600 hPa and 500 hPa temperatures. "Snow (model)" uses Open-Meteo’s fixed 7:1 ratio, so light snow can read low. "Snow (ratio est.)" is the same forecast water at the estimated ratio: an estimate, not a better model, and it can run high in marginal or windy storms. Freezing level is the 0°C altitude, not the snow line.</p>`;
+  return `<div class="table-scroll" tabindex="0" aria-label="Daily details, scrolls sideways"><table class="data-table"><thead><tr><th scope="col">Day</th><th scope="col" class="num">Snow (model)</th><th scope="col" class="num">Snow (ratio est.)</th><th scope="col" class="num">Station est.<small>SNOTEL</small></th><th scope="col" class="num">NOAA analysis<small>4 km grid</small></th><th scope="col" class="num">Snow board<small>observer</small></th><th scope="col">Snow quality</th><th scope="col" class="num">High / low</th><th scope="col" class="num">Max gust</th><th scope="col" class="num">Lowest freezing level</th><th scope="col" class="num">Rain</th></tr></thead><tbody>${rows}</tbody></table></div>
+  <p class="note">"Station est." is the SNOTEL station estimate: the larger of the depth gain and ${SNOTEL_SNOW_RATIO} times the water gain (the water counts only on days with a high at or below ${SNOTEL_WATER_MAX_F}°F); <sup>w</sup> marks days where the water term won. "NOAA analysis" is the NOHRSC snowfall analysis at one 4 km cell${loc.sample ? ' on the ski area' : ' at this point'}, the 24 h from 5 AM (6 AM in daylight time); an analysis, not a measurement.${esc(analysisStatus())}${boardNote(loc)} Snow quality is the snow-to-water ratio: Blower 17:1 or more, Powder 13 to 17, Average 10 to 13, Heavy under 10. Past days use the ratio measured at the SNOTEL station (depth gain over water gain, shown on cold days when the depth rose at least 2 in). Forecast days are an <b>estimate</b> from a Kuchera-style rule using the warmest of the 2 m, 600 hPa and 500 hPa temperatures. "Snow (model)" is the model’s snow water at a fixed ${FORECAST_SNOW_RATIO}:1, the same for every model. "Snow (ratio est.)" is the same forecast water at the estimated ratio: an estimate, not a better model, and it can run high in marginal or windy storms. Freezing level is the 0°C altitude, not the snow line.</p>`;
 }
 function hourlyStrip(d) {
   const start = Math.floor(Date.now() / HOUR) * HOUR, hrs = Array.from({length: 48}, (_, i) => start + (i + 1) * HOUR);
@@ -744,7 +765,7 @@ function modelTable(loc) {
     <tbody>${body}</tbody>
     <tfoot>${sRow('Range (min to max)', s => s.n >= 2 ? `${cellSnow(s.min) || '0'}–${cellSnow(s.max) || '0'}` : '–')}${sRow('Median', s => finite(s.median) ? cellSnow(s.median) || '0' : '–')}${sRow('Models reporting', s => s.n || '–')}${sRow(`Models ≥ ${oneInch()}`, s => s.n ? `${modelsOnly.filter(x => valueAt(x, s.i) >= 2.54).length} of ${s.n}` : '–')}${sRow('Spread', s => `<span class="spread ${s.label.toLowerCase().replace(/\s+/g, '-')}">${s.label}</span>`)}</tfoot>
   </table></div>
-  <p class="note">Calendar-day totals in Colorado time; rolling windows start now. A dash means the model does not reach that far, never zero. <b>Spread is disagreement between models, not a probability.</b> "Models ≥ ${oneInch()}" is a count of models, not a chance of snow. The blend row is for reference and is not part of the spread. NBM’s snowfall uses variable snow ratios while most others use a fixed 7:1, so NBM often reads higher for the same water. Retrieved ${esc(timeFmt(m.at))}.</p>`;
+  <p class="note">Calendar-day totals in Colorado time; rolling windows start now. A dash means the model does not reach that far, never zero. <b>Spread is disagreement between models, not a probability.</b> "Models ≥ ${oneInch()}" is a count of models, not a chance of snow. The blend row is for reference and is not part of the spread. Every row is the model’s snow water at the same fixed ${FORECAST_SNOW_RATIO}:1, so rows differ in water and rain-snow line, not in assumed snow ratio. Retrieved ${esc(timeFmt(m.at))}.</p>`;
 }
 let chartState = null; // geometry of the last drawn model chart, for the crosshair readout
 function modelChart(loc, width) {
@@ -809,7 +830,7 @@ function avalancheHTML(loc) {
   const label = named ? `${['', 'Low', 'Moderate', 'Considerable', 'High', 'Extreme'][level]} (${level} of 5)` : valid ? 'No rating published' : 'Expired or unverified';
   return `${cachedNotice('bulletins', 'The CAIC feed')}<p class="panel-sub">${esc(p.name || 'CAIC zone')}</p><p><span class="danger d${level}">${esc(label)}</span></p>
   <dl class="facts"><div><dt>Issued</dt><dd>${esc(timeFmt(start, {month: 'short', day: 'numeric'}))}</dd></div><div><dt>Expires</dt><dd>${esc(timeFmt(end, {month: 'short', day: 'numeric'}))}</dd></div></dl>
-  ${valid && p.travel_advice ? `<p>${esc(p.travel_advice)}</p>` : ''}${p.warning?.product && valid ? '<p class="warn-text"><b>An avalanche warning is in effect. Read the official product.</b></p>' : ''}${caveat}${external(p.link || 'https://avalanche.state.co.us/', 'This zone on CAIC')}`;
+  ${valid && p.travel_advice ? `<p>${esc(p.travel_advice)}</p>` : ''}${p.warning?.product && valid ? '<p class="warn-text"><b>An avalanche warning is in effect. Read the official product.</b></p>' : ''}${caveat}${external(httpUrl(p.link, 'https://avalanche.state.co.us/'), 'This zone on CAIC')}`;
 }
 
 /** Nearest human-read snow board (NWS COOP or CoCoRaHS), from boards.json built by the data job. */
@@ -821,7 +842,7 @@ function boardHTML(loc) {
   if (!x) return `<p class="muted">No observer snow board within ${b.maxMiles} mi and ${b.maxElevDiffFt.toLocaleString('en-US')} ft of this ${loc.kind === 'bc' ? 'pass' : 'resort’s base'} reports regularly. The station estimate and NOAA analysis above still apply.</p>`;
   const st = x.station, ref = loc.kind === 'resort' ? 'the base' : 'the pass', diff = st.elevDiffFt;
   const value = r => r.accumulated ? 'Multi-day total' : r.trace ? 'Trace' : finite(r.snowIn) ? snow(r.snowIn * 2.54) : '–';
-  const rows = x.reports.map(r => `<tr><th scope="row">${esc(fmt(r.date, {weekday: 'short', month: 'short', day: 'numeric'}))}</th><td class="num">${value(r)}</td><td class="num">${finite(r.depthIn) ? snow(r.depthIn * 2.54) : '–'}</td></tr>`).join('');
+  const rows = x.reports.slice(0, 3).map(r => `<tr><th scope="row">${esc(fmt(r.date, {weekday: 'short', month: 'short', day: 'numeric'}))}</th><td class="num">${value(r)}</td><td class="num">${finite(r.depthIn) ? snow(r.depthIn * 2.54) : '–'}</td></tr>`).join('');
   const licence = st.network === 'CoCoRaHS' ? `CoCoRaHS data, ${external('https://creativecommons.org/licenses/by/4.0/', 'CC BY 4.0')}` : 'NWS Cooperative Observer data';
   return `${cachedNotice('boards', 'The snow-board file')}<p class="panel-sub">${external(st.url, esc(st.name))} (${esc(st.network)}) · ${ft(st.elevFt)} · ${st.miles} mi away · ${Math.abs(diff).toLocaleString('en-US')} ft ${diff >= 0 ? 'above' : 'below'} ${ref}</p>
   <div class="table-scroll" tabindex="0" aria-label="Snow-board reports"><table class="data-table"><thead><tr><th scope="col">Report for the morning of</th><th scope="col" class="num">New snow</th><th scope="col" class="num">Snow depth</th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -834,7 +855,7 @@ function renderResort() {
   const band = loc.base && ['base', 'mid', 'summit'].includes(app.route.band) ? app.route.band : 'point';
   const det = app.detail[`${loc.id}:${band}`], d = det?.data || (band === 'point' ? app.data[loc.id] : null), cols = columns(), t = totals(loc, d, cols);
   const fav = prefs.favs.includes(loc.id), q5 = forecastQuality(d, localDate(), 5), depth = app.snotel[loc.snotel]?.SNWD?.filter(x => x.value !== null).at(-1);
-  const bands = loc.base ? [['point', 'Grid point'], ['base', `Base ${ft(loc.base)}`], ['mid', 'Mid'], ['summit', `Summit ${ft(loc.top)}`]] : [];
+  const bands = loc.base ? [['point', loc.sample ? 'Ski area' : 'Grid point'], ['base', `Base ${ft(loc.base)}`], ['mid', 'Mid'], ['summit', `Summit ${ft(loc.top)}`]] : [];
   const keepY = window.scrollY, width = Math.min(1100, (view.querySelector('.chart-slot')?.clientWidth || Math.min(window.innerWidth - 60, 1100)) - 12);
   $('winTitle').textContent = `${loc.name} - ALEC'S SNOW PAGE`;
   view.setAttribute('aria-labelledby', 'resortTitle');
@@ -846,15 +867,15 @@ function renderResort() {
     <div class="actions"><button type="button" class="btn ${fav ? 'on' : ''}" data-fav="${loc.id}" aria-pressed="${fav}">${icon('star', 'icon-sm')}${fav ? 'Favorite' : 'Add favorite'}</button>${loc.webcam ? `<a class="btn" href="${esc(loc.webcam)}" target="_blank" rel="noopener noreferrer">${icon('cam', 'icon-sm')}Webcams</a>` : ''}<button type="button" class="btn" data-action="share">${icon('link', 'icon-sm')}Copy link</button><a class="btn" href="#/map?focus=${loc.id}">${icon('map', 'icon-sm')}On 3D map</a>${loc.url ? external(loc.url, 'Official site', 'btn') : ''}</div>
   </div>
   <dl class="kpis"><div><dt>Past 10 days</dt><dd>${finite(t.past10) ? snow(t.past10) : '–'}</dd><span>${PAST_SHORT[pastSource()]}</span></div>${[t.next5, t.days5to10, t.days10to15].map((v, i) => `<div><dt>${i ? `Days ${rangeLabel(i)}` : 'Next 5 days'}</dt><dd>${finite(v) ? snow(v) : '–'}</dd><span>${esc(rangeDates(i))}, forecast</span></div>`).join('')}<div><dt>Snow quality next 5 days</dt><dd>${q5 ? qual(q5.label) : '–'}</dd><span>${q5 ? `about ${Math.round(q5.ratio)}:1, estimate` : 'not enough snow to estimate'}${depth ? ` · depth now ${snow(depth.value * 2.54)}` : ''}</span></div></dl>
-  ${bands.length ? `<div class="band-switch"><div class="segmented" role="group" aria-label="Forecast elevation">${bands.map(([v, l]) => `<button type="button" data-band="${v}" aria-pressed="${band === v}">${l}</button>`).join('')}</div><p class="note">Base, mid and summit re-run the same coordinates at that elevation (Open-Meteo lapse-rate adjustment). They are not separate stations. The model comparison always uses the grid point.</p></div>` : ''}
+  ${bands.length ? `<div class="band-switch"><div class="segmented" role="group" aria-label="Forecast elevation">${bands.map(([v, l]) => `<button type="button" data-band="${v}" aria-pressed="${band === v}">${l}</button>`).join('')}</div><p class="note">${loc.sample ? 'Ski area is the center of the ski area at its own terrain height. ' : ''}Base, mid and summit re-run the same point at that elevation (Open-Meteo lapse-rate adjustment). They are not separate stations. The model comparison always uses ${loc.sample ? 'the ski-area point' : 'the grid point'}.</p></div>` : ''}
   ${win('Daily snowfall', safe('Daily snowfall', () => d ? dailyBars(loc, d, cols) : det?.error || app.errors[loc.id] ? `<div class="notice">The forecast could not load (${esc(det?.error || app.errors[loc.id])}). Nothing is substituted.</div>` : '<div class="skeleton" style="height:180px"></div>'), {iconName: 'table'})}
   ${win('Next 48 hours', safe('Next 48 hours', () => `<p class="panel-sub">Hourly snowfall, with the amount in each 6-hour block written underneath (${snowUnit()}); hover or tap a bar for temperature and gusts.</p>${det?.data ? hourlyStrip(det.data) : det?.error ? `<div class="notice">Hourly details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:110px"></div>'}`))}
   ${win('Which model to trust', safe('The model scoreboard', scoreboardHTML), {iconName: 'star'})}
-  ${win('Model comparison', safe('The model comparison', () => `<p class="panel-sub">${MODELS.length} models at the grid point, sharpest grid first. When they agree, confidence is higher; when they scatter, treat any single number loosely.</p><div class="chart-slot">${modelChart(loc, width)}</div>${modelTable(loc)}`), {iconName: 'table'})}
-  ${win('Day by day', safe('The day table', () => `<p class="panel-sub">${band === 'point' ? 'Grid point' : `${bands.find(b => b[0] === band)[1]} scenario`}.</p>${det?.data ? dayTable(loc, det.data, cols) : det?.error ? `<div class="notice">Details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:420px"></div>'}`), {iconName: 'doc'})}
+  ${win('Model comparison', safe('The model comparison', () => `<p class="panel-sub">${MODELS.length} models at ${loc.sample ? 'the ski-area point' : 'the grid point'}, sharpest grid first. When they agree, confidence is higher; when they scatter, treat any single number loosely.</p><div class="chart-slot">${modelChart(loc, width)}</div>${modelTable(loc)}`), {iconName: 'table'})}
+  ${win('Day by day', safe('The day table', () => `<p class="panel-sub">${band === 'point' ? (loc.sample ? 'Ski area' : 'Grid point') : `${bands.find(b => b[0] === band)[1]} scenario`}.</p>${det?.data ? dayTable(loc, det.data, cols) : det?.error ? `<div class="notice">Details could not load: ${esc(det.error)}.</div>` : '<div class="skeleton" style="height:420px"></div>'}`), {iconName: 'doc'})}
   <div class="two-up">${win('Observed snowpack', safe('The station panel', () => stationHTML(loc)))}${win('Avalanche bulletin', safe('The avalanche panel', () => avalancheHTML(loc)))}</div>
   ${win('Nearest snow board', safe('The snow-board panel', () => boardHTML(loc)), {iconName: 'doc'})}
-  <p class="note">Coordinates ${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}; Open-Meteo returned grid ${d?.lat?.toFixed(3) ?? '–'}, ${d?.lon?.toFixed(3) ?? '–'}.${loc.sample ? ` NOAA analysis sampled at ${loc.sample[0].toFixed(4)}, ${loc.sample[1].toFixed(4)}, the center of the ski area’s outline in OpenStreetMap.` : ''} Resort-reported snowfall and lift status live on the ${loc.url ? external(loc.url, 'official site') : 'operator’s site'}.</p>`);
+  <p class="note">Coordinates ${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${loc.sample ? ' (base area)' : ''}; Open-Meteo returned grid ${d?.lat?.toFixed(3) ?? '–'}, ${d?.lon?.toFixed(3) ?? '–'}.${loc.sample ? ` The forecast and the NOAA analysis are both read at ${loc.sample[0].toFixed(4)}, ${loc.sample[1].toFixed(4)}, the center of the ski area’s outline in OpenStreetMap.` : ''} Resort-reported snowfall and lift status live on the ${loc.url ? external(loc.url, 'official site') : 'operator’s site'}.</p>`);
   if (app.route.rendered === loc.id + band) window.scrollTo(0, keepY);
   app.route.rendered = loc.id + band;
   loadDetail(loc, band); loadModels(loc); loadAvalanche();
@@ -862,11 +883,12 @@ function renderResort() {
 
 /* ============================== MAP ============================== */
 let mapModule = null, mapState = 'none', snowTimer = null, radarTimer = null;
+/** A download failure (map.js or the map library) is 'retry': tried again when the map reopens or the browser is back online. */
 function mountMapView() {
   mapState = 'mounting';
   import('./map.js').then(mod => { mapModule = mod; return mod.mountMap($('mapCanvas'), $('snowCanvas'), mapOptions()); })
     .then(() => { mapState = 'ok'; $('mapFallback').hidden = true; })
-    .catch(e => { mapState = /timed out/.test(e.message) ? 'timed-out' : 'failed'; const f = $('mapFallback'); f.hidden = false; f.textContent = `The 3D map could not start (${e.message}). The ranked list still works.`; });
+    .catch(e => { mapState = /timed out/.test(e.message) ? 'timed-out' : e.retryable || !mapModule ? 'retry' : 'failed'; const f = $('mapFallback'); f.hidden = false; f.textContent = `The 3D map could not start (${e.message}). The ranked list still works.`; });
 }
 /**
  * Snow timeline. Left of "Now": observed totals from a past day up to now (NOHRSC field; columns from
@@ -937,8 +959,7 @@ function mapOptions() {
     layers: app.map.layers, hires: app.hires ? {base: `${GEN_BASE}hires/`, bounds: app.hires.bounds} : null, snowFrame: sf, radarFrame: rf,
     freezingM: freezingFor(shiftDate(localDate(), sf.kind === 'future' ? dayAhead : 0)),
     snotel: TRIPLETS.map(t => ({triplet: t, ...app.snotelMeta[t], depthIn: app.snotel[t]?.SNWD?.filter(x => x.value !== null).at(-1)?.value ?? null})).filter(s => finite(s.lat)),
-    bulletins: app.bulletins, focusId: app.route.focus, snowfx: prefs.anim && !reduceMotion.matches, view3d: app.map.view3d !== false,
-    onSelect: id => { location.hash = `#/resort/${id}`; }};
+    bulletins: app.bulletins, focusId: app.route.focus, snowfx: prefs.anim && !reduceMotion.matches, view3d: app.map.view3d !== false};
 }
 function mapLegend() {
   const steps = SNOW_RAMP.map(([v, c]) => [imperial() ? v : Math.round(v * 2.54 * 10) / 10, c]);
@@ -1007,7 +1028,7 @@ function renderMap() {
         ${win('Ranked', '<div class="map-list-wrap"><ol class="map-list" id="mapList"></ol></div>', {iconName: 'table'})}
       </div></div>`;
     mountMapView();
-  } else if (mapState === 'timed-out' && window.maplibregl) mountMapView(); // the library arrived after its timeout; other failures (no WebGL) are final
+  } else if ((mapState === 'timed-out' && window.maplibregl) || mapState === 'retry-now') mountMapView(); // the library arrived after its timeout, or a failed download is due another try; no WebGL is final
   const f = $('mapFallback');
   try { renderMapSide(); mapModule?.updateMap(mapOptions()); if (f && mapState === 'ok') f.hidden = true; }
   catch (e) { console.error('map', e); if (f) { f.hidden = false; f.textContent = `The map could not update (${e.message}). Other pages still work.`; } }
@@ -1050,17 +1071,17 @@ function renderAbout() {
   <h2>Past days: three sources, kept apart</h2>
   <p>No instrument measures new snow at every resort every day for free, so the past columns offer three labeled sources, switched with the "Past: Station / NOAA / Modeled" buttons. They are never mixed.</p>
   <p><b>Station estimate (the default).</b> From the <a href="https://wcc.sc.egov.usda.gov/awdbRestApi/swagger-ui/index.html" target="_blank" rel="noopener noreferrer">NRCS SNOTEL</a> station assigned to each location. SNOTEL measures snow depth and snow water, not snowfall, so new snow is derived. NRCS daily readings are taken at the end of their date, so a day’s change is that day’s reading minus the previous day’s. The estimate is the larger of two terms: the depth gain (counted when it is at least 1 in and the water did not drop, because depth sensors jitter by about an inch) and ${SNOTEL_SNOW_RATIO} times the water gain (counted only when the station’s high that day was at or below ${SNOTEL_WATER_MAX_F}°F, so rain is not counted as snow). Water is not lost when fresh snow settles, so the water term recovers snow that settles while a storm is still falling. At the four places in Colorado where an observer’s snow board sits within 5 km and 1,000 ft of a SNOTEL station, over six winters (2020-21 to 2025-26, December to March, 23 station-seasons, 2,560 in of board snow), depth gain alone caught 61% of the board total and this rule caught 84%, with the lowest day-to-day error of the variants tried (0.70 in) and no season above 128% of its board. That is one point short of the 85% the snow research set as its target, but no variant met that target without some season reading above 130% of its board. Without the temperature check it would catch 93%, but one season read 146%; a warmer check (36 or 38°F) reads 86 or 88% with seasons up to 137%. That is four station pairs, so it is still an estimate: the ${SNOTEL_SNOW_RATIO}:1 ratio and the ${SNOTEL_WATER_MAX_F}°F check are settings re-checked each autumn against the boards, and a station is near the location, not on its slopes. Several locations share a station.</p>
-  <p><b>NOAA analysis.</b> The <a href="https://www.nohrsc.noaa.gov/snowfall_v2/" target="_blank" rel="noopener noreferrer">NOHRSC National Snowfall Analysis</a>: radar and gauge water turned into snow with a model snow ratio, then pulled toward reports from COOP, CoCoRaHS and NWS spotters. The scheduled data job reads one 4 km cell per location every 6 hours and re-reads the last 10 days each time, because NOAA revises each day for about 5 days. For resorts the cell is at the center of the ski area’s outline in OpenStreetMap, between base and summit, not at the base-area point the forecasts use (the point moves season totals by up to almost 3 times). For passes it is the pass. Each value covers the 24 h from 5 AM (6 AM in daylight time) and is filed under the day it starts. Few observers report above 9,000 ft, so in high terrain it leans on the radar and gauge background. It is an analysis, not a measurement.</p>
+  <p><b>NOAA analysis.</b> The <a href="https://www.nohrsc.noaa.gov/snowfall_v2/" target="_blank" rel="noopener noreferrer">NOHRSC National Snowfall Analysis</a>: radar and gauge water turned into snow with a model snow ratio, then pulled toward reports from COOP, CoCoRaHS and NWS spotters. The scheduled data job reads one 4 km cell per location every 6 hours and re-reads the last 10 days each time, because NOAA revises each day for about 5 days. For resorts the cell is at the center of the ski area’s outline in OpenStreetMap, between base and summit, the same point the forecasts use, not the base-area point (the point moves season totals by up to almost 3 times). For passes it is the pass. Each value covers the 24 h from 5 AM (6 AM in daylight time) and is filed under the day it starts. Few observers report above 9,000 ft, so in high terrain it leans on the radar and gauge background. At the same four observer snow boards used to check the station estimate, over the same six winters (December to March, 2,573 in of board snow), the analysis caught 90% of board snowfall with a day-to-day error of 0.45 in and no season above 123% of its board, against 84% and 0.70 in for the station estimate. The analysis is pulled toward those same board reports, so that is the best it does; away from observers, in high terrain, expect less. It is an analysis, not a measurement.</p>
   <p><b>Modeled.</b> Open-Meteo model output for past days, stitched from recent runs. Not a measurement.</p>
-  <p><b>Nearest snow board</b> (location pages). The closest NWS Cooperative Observer or CoCoRaHS station within 10 mi and 1,500 ft of the resort base or the pass that reported on at least half of the last 60 days, from <a href="https://www.rcc-acis.org/" target="_blank" rel="noopener noreferrer">RCC-ACIS</a>, rebuilt every 6 hours. These are real measurements by people on a snow board, but at town or base elevation, sometimes days late, and missing near most passes. CoCoRaHS data are CC BY 4.0.</p>
+  <p><b>Nearest snow board</b> (location pages). The closest NWS Cooperative Observer or CoCoRaHS station within 10 mi and 1,500 ft of the resort base or the pass that reported on at least half of the last 60 days, from <a href="https://www.rcc-acis.org/" target="_blank" rel="noopener noreferrer">RCC-ACIS</a>, rebuilt every 6 hours. These are real measurements by people on a snow board, but at town or base elevation, sometimes days late, and missing near most passes. The day table lists the last 10 reports in its "Snow board" column, each on the night it covers (a report read on the morning of the 5th is shown on the 4th, the same night as the NOAA analysis for the 4th). CoCoRaHS data are CC BY 4.0.</p>
   <p>There is no free, licensed feed of resort-reported snowfall, so the site does not show one, and it does not copy other snow sites (their terms forbid it). Resort reports stay on the resorts’ own websites.</p>
   <h2>Season snowfall and snowpack rankings</h2>
   <p>Season snow is the station estimate added up from October 1 (the start of the NRCS water year) through each station’s latest reading. In the board comparison above, the same rule caught 84% of board totals over six winters. Resorts measure on their own stakes, usually higher on the mountain, so their numbers can still differ; the totals are best for comparing resorts with each other. A total with missing station days is marked ≥, because it can only be too low.</p>
   <p>The Snowpack Power Rankings follow the <a href="https://www.wcc.nrcs.usda.gov/ftpref/support/states/CO/products/#state=co&element=wteq" target="_blank" rel="noopener noreferrer">NRCS Colorado snowpack products</a>. A scheduled job pulls every past daily snow water equivalent (SWE) reading for each station; the page then places today’s live reading among the readings for the same calendar date in every past water year, counting ties as half. 50th is a typical year for the date. At least 10 years of record are required, and bare ground on a date that is usually bare is not ranked, because it says nothing. Early in the season a few tenths of an inch move the percentile a lot. % of median is the NRCS median for the date.</p>
   <h2>Forecasts</h2>
-  <p>From the free <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener noreferrer">Open-Meteo forecast API</a> (best-match blend) at each location’s coordinates, summed into calendar days in Colorado time, including the 23 and 25 hour days at daylight-saving changes. A day with any missing hour is shown as missing. Resort coordinates sit near the base area, so the homepage is a base-area forecast; each resort page can re-run it at mid-mountain and summit elevation.</p>
+  <p>From the free <a href="https://open-meteo.com/en/docs" target="_blank" rel="noopener noreferrer">Open-Meteo forecast API</a> (best-match blend) at each location’s coordinates, summed into calendar days in Colorado time, including the 23 and 25 hour days at daylight-saving changes. A day with any missing hour is shown as missing. For resorts the point is the center of the ski area (between base and summit, the same point as the NOAA analysis), not the base area: Open-Meteo moves each model’s temperature to the point’s terrain height, and at a base near 6,900 ft that can turn the same forecast water into rain. Each resort page can also re-run it at base and summit elevation. Snow is each model’s forecast snow water times ${FORECAST_SNOW_RATIO}, the same fixed ratio for every model and the one the station estimate was checked with against snow boards; Open-Meteo’s own snowfall field uses 7:1 for most models, which reads about 30% lower for the same water. It is a model estimate, not a measurement.</p>
   <h2>Snow quality</h2>
-  <p>Quality is the snow-to-water ratio: Blower 17:1 or higher, Powder 13 to 17, Average 10 to 13, Heavy under 10. For past days it is measured at the SNOTEL station (depth gain divided by water gain, shown when the depth rose at least 2 in and the high was at or below ${SNOTEL_WATER_MAX_F}°F, since warmer water may include rain; on days where the water term set the estimate it would only repeat the assumed ratio, so none is shown). For forecast days it is an estimate: Open-Meteo converts frozen water to snow at a fixed 7:1, and the site re-estimates the ratio from the warmest temperature between the 2 m point and 500 hPa using a Kuchera-style rule. It is a guide to light versus heavy snow, not a measurement.</p>
+  <p>Quality is the snow-to-water ratio: Blower 17:1 or higher, Powder 13 to 17, Average 10 to 13, Heavy under 10. For past days it is measured at the SNOTEL station (depth gain divided by water gain, shown when the depth rose at least 2 in and the high was at or below ${SNOTEL_WATER_MAX_F}°F, since warmer water may include rain; on days where the water term set the estimate it would only repeat the assumed ratio, so none is shown). For forecast days it is an estimate: the forecast columns convert snow water at a fixed ${FORECAST_SNOW_RATIO}:1, and the site re-estimates the ratio from the warmest temperature between the 2 m point and 500 hPa using a Kuchera-style rule. It is a guide to light versus heavy snow, not a measurement.</p>
   <h2>Which model to trust</h2>
   <p>The site ranks the models itself. A scheduled job pulls each model\u2019s earlier forecasts from Open-Meteo\u2019s <a href="https://open-meteo.com/en/docs/previous-runs-api" target="_blank" rel="noopener noreferrer">Previous Runs API</a> and compares their 1-day and 3-day daily precipitation forecasts at ${finite(r?.stations) ? `${r.stations} SNOTEL stations` : 'the SNOTEL stations this site uses'} with what the station gauges measured over the last two winters. It scores water rather than snow depth because water is what models forecast directly and gauges measure. The ranking uses the equitable threat score for storm days (at least 5 mm of water), which rewards catching storms and penalizes false alarms; a resampled 90% range shows which models are statistically tied with the leader. The same-day (first hours) test was dropped: the archive stitches each run\u2019s first hour or two, where HRRR is known to be nearly dry while it spins up, so it would measure spin-up rather than skill. Published research agrees 3 km models such as HRRR beat coarse models at short range over narrow ranges, and also that HRRR under-forecasts high-elevation Colorado and Utah precipitation by roughly 25 to 65% (Gowan, Steenburgh and Schwartz 2018; Bytheway et al. 2024; Pletcher et al. 2024). The comparison table lists models from the sharpest grid to the coarsest.</p>
   <div class="table-scroll" tabindex="0" aria-label="Model list, scrolls sideways"><table class="data-table"><thead><tr><th scope="col">Model</th><th scope="col">Open-Meteo id</th><th scope="col">From</th><th scope="col">About</th></tr></thead><tbody>${MODELS.map(m => `<tr><th scope="row">${esc(m.name)}</th><td><code>${m.id}</code></td><td>${esc(m.org)}</td><td>${esc(m.about)}</td></tr>`).join('')}</tbody></table></div>
@@ -1079,6 +1100,7 @@ const IDS = new Set(LOCS.map(l => l.id));
 function route() {
   const prev = app.route;
   app.route = parseRoute(location.hash, IDS) ?? prev; // a hash that is not a route (such as #main) keeps the current view
+  if (mapState === 'retry' && app.route.view === 'map' && prev.view !== 'map') mapState = 'retry-now'; // reopening the map retries a failed download
   if (app.route.view !== 'map') { stopTimer('snow'); stopTimer('radar'); mapModule?.pause(true); } else mapModule?.pause(false);
   for (const v of ['home', 'resort', 'map', 'about']) $(`view-${v}`).hidden = v !== app.route.view;
   const navKey = app.route.view === 'resort' ? 'home' : app.route.view;
@@ -1211,9 +1233,14 @@ document.addEventListener('scroll', hideTip, {passive: true, capture: true});
 for (const ev of ['wheel', 'pointerdown', 'keydown']) document.addEventListener(ev, e => { const sc = e.target.closest?.('.matrix-scroll'); if (sc) sc.dataset.manual = '1'; }, {passive: true, capture: true});
 document.addEventListener('keydown', e => { if (e.key === 'Escape') hideTip(); });
 window.addEventListener('hashchange', route);
-let resizeTimer;
+let resizeTimer, lastWidth = window.innerWidth;
 // Home re-renders too: rotation can switch the phone summary layout, and an unscrolled table re-aims at today.
-window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (app.route.view === 'resort') renderResort(); else if (app.route.view === 'home') renderHome(); }, 200); });
+// Width only: a phone's URL bar collapsing changes the height on every scroll, and a rebuild there cut momentum scrolling short.
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => {
+  if (window.innerWidth === lastWidth) return;
+  lastWidth = window.innerWidth;
+  if (app.route.view === 'resort') renderResort(); else if (app.route.view === 'home') renderHome();
+}, 200); });
 darkQuery.addEventListener('change', applyPrefs);
 reduceMotion.addEventListener('change', applyPrefs);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
