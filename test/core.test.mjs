@@ -1,7 +1,7 @@
 // Run: node --test test/core.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {HOUR, integrate, dailyTotal, rangeTotals, dayBounds, zonedEpoch, sumComplete, normalizeForecast, normalizeModels, spreadStats, kucheraSLR, slrEstimate, binIndex, horizon, measuredDay, qualityLabel, parseCSV, dailyPick, waterYearStart, seasonSnow, percentileRank,
+import {HOUR, integrate, dailyTotal, rangeTotals, dayBounds, zonedEpoch, sumComplete, normalizeForecast, normalizeModels, spreadStats, rangeSpread, kucheraSLR, slrEstimate, binIndex, horizon, measuredDay, qualityLabel, parseCSV, dailyPick, waterYearStart, seasonSnow, percentileRank,
   parseProviderDate, bulletinWindow, parseStationData, analysisByDate, boardByDate, withRetry, retryableStatus, request, parseRoute, SNOTEL_SNOW_RATIO, SNOTEL_WATER_MAX_F, FORECAST_SNOW_RATIO,
   containsPoint, httpUrl} from '../core.js';
 import {parseValue, classify, nearestBoard, lastReports, miles} from '../scripts/build-boards.mjs';
@@ -46,6 +46,16 @@ test('forecast ranges are back-to-back day buckets, not running totals', () => {
   assert.deepEqual(rangeTotals(hours.slice(0, -1), start, [0, 5, 10, 15]).map(v => v === null), [false, false, true]);
   assert.deepEqual(rangeTotals(null, start, [0, 5, 10, 15]), [null, null, null]); // no forecast: missing, never zero
   assert.equal(rangeTotals(hours, start, [0, 3])[0], 6); // the Storm Watch 3-day window: days 0-2
+});
+
+test('range spread across models leaves out models that stop short of a range', () => {
+  const start = '2026-10-25', a = zonedEpoch(start), end = zonedEpoch('2026-11-09');
+  const flat = cm => { const out = []; for (let t = a + HOUR; t <= end; t += HOUR) out.push({t, snow: cm}); return out; };
+  const short = flat(0.1).filter(h => h.t <= zonedEpoch('2026-11-04')); // stops after day 9, like a 10-day model
+  const [r0, r5, r10] = rangeSpread([flat(0), flat(0.1), short, null], start, [0, 5, 10, 15]);
+  assert.deepEqual([r0.n, r5.n, r10.n], [3, 3, 2]);
+  assert.equal(r10.min, 0); // a dry model counts as zero snow; a short or missing one is not counted
+  assert.ok(Math.abs(r5.max - 0.1 * (zonedEpoch('2026-11-04') - zonedEpoch('2026-10-30')) / HOUR) < 1e-9);
 });
 
 test('sumComplete refuses partial totals', () => {
